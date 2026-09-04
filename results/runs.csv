@@ -1,0 +1,5 @@
+recorded_at,fixture_id,policy_version,arm,budget,gross_recovered,net_recovered,recovery_rate,wasted_spend,chase_precision,contacts_per_rupee_recovered,cost_per_rupee_recovered,p95_decision_latency_ms,policy_violations,items_chased,items_suppressed,note
+2026-09-04T17:06:22+00:00,fx-20260905-1000,policy-v1,B0,2500.0,0,0.0,0.0,0.0,0.0,0.0,0.0,0.002,0,0,1000,"first full run, deterministic arms only"
+2026-09-04T17:06:22+00:00,fx-20260905-1000,policy-v1,B1,2500.0,174082.01,171583.01,0.2232,2142.0,0.5822,0.0,0.014355,0.004,0,833,167,"first full run, deterministic arms only"
+2026-09-04T17:06:22+00:00,fx-20260905-1000,policy-v1,B2,2500.0,461983.45,459575.95,0.5923,1479.75,0.6151,0.000351,0.005211,0.011,0,951,49,"first full run, deterministic arms only"
+2026-09-04T17:06:22+00:00,fx-20260905-1000,policy-v1,B3*,2500.0,526923.61,524423.81,0.6756,1287.7,0.6418,0.000235,0.004744,0.189,0,737,263,"first full run, deterministic arms only"
