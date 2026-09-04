@@ -1,0 +1,23 @@
+[project]
+name = "recovery-desk"
+version = "0.1.0"
+description = "Decides which at-risk revenue is worth recovering under a finite budget, and proves it worked."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+# The core engine is stdlib-only so a judge can clone and run it with no install step.
+# These are for the model arm and the read-only API that feeds the UI.
+model = ["anthropic>=0.40"]
+api = ["fastapi>=0.110", "uvicorn>=0.29"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+recovery-desk = "recovery_desk.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
