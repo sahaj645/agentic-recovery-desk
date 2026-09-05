@@ -12,6 +12,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from .config import DEFAULT_BATCH_SIZE, DEFAULT_POLICY, DEFAULT_SEED, Policy
 from .contract import build_decisions, build_evidence, build_exceptions, build_workspace, waterline_density
@@ -151,24 +152,116 @@ def regression_table(path: Path, limit: int = 12) -> str:
     )
 
 
+def _clip(text: str, width: int = 64) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= width else text[: width - 3] + "..."
+
+
+#: The featured items, in the order they read best on camera. Each is a real
+#: planted-input item from the scarcity scenario; the tag names the moment it
+#: carries, never what the desk should do -- the allocator decides that itself,
+#: and the row prints back whatever it decided.
+_FEATURED = [
+    ("itm_h0001", "do-nothing"),
+    ("itm_h0002", "fund-instead"),
+    ("itm_h0003", "counterintuitive"),
+    ("itm_h0004", "levers-spent"),
+    ("itm_h0005", "do-nothing"),
+]
+
+
+def _moment_row(tag: str, decision, amount: float) -> list[str]:
+    if decision is None:
+        return [tag, "-", "-", "-", "-"]
+    if decision.status is DecisionStatus.CHASE:
+        verdict = "chase: " + (decision.chosen_action.value if decision.chosen_action else "?")
+    else:
+        verdict = "do nothing"
+    return [tag, decision.item_id, "Rs%.0f" % amount, verdict, _clip(decision.rationale)]
+
+
+def guided_moments(data: SimpleNamespace) -> str:
+    """The strongest real moments the scarcity scenario exposes, as a cheat-sheet.
+
+    Every id, amount and decision here is read back from the run that just
+    executed -- nothing is staged. The point is to hand whoever is presenting
+    the exact items to open in the workspace, and to prove in the terminal that
+    the memorable decisions are the allocator's own, not a script's.
+    """
+    arm = data.scenario_arm
+    amounts = {i.id: i.amount for i in data.scenario_fixture.items}
+    by_item = {d.item_id: d for d in arm.decisions}
+    sc = data.workspace["overview"]["scarcity"]
+
+    out = [
+        "STRONGEST MOMENTS  ---  %s, budget Rs%.0f  (open each id in `run.py ui`)"
+        % (data.scenario_fixture.id, sc["budget"]),
+        "  SCARCITY     Rs%.0f at risk, but chasing all %d worthwhile items costs Rs%.0f"
+        % (data.scenario_fixture.total_at_risk, sc["items_worth_chasing"], sc["demanded_spend"]),
+        "  ALLOCATION   the budget funds %d and leaves %d positive-value items outbid;"
+        % (sc["items_funded"], sc["items_outbid"]),
+        "               the auction clears at Rs%.1f of expected recovery per rupee spent."
+        % sc["waterline_density"],
+        "",
+        report_module.render_table(
+            ["moment", "item", "amount", "decision", "why (the desk's own rationale)"],
+            [
+                _moment_row(tag, by_item.get(iid), amounts.get(iid, 0.0))
+                for iid, tag in _FEATURED
+                if iid in by_item
+            ],
+        ),
+    ]
+
+    smaller = next((c for c in data.eval_cases if c.id == "desk-smaller-but-better"), None)
+    if smaller is not None:
+        ev = smaller.evidence
+        out += [
+            "",
+            "  SMALLER BEATS BIGGER (a real pair the allocator produced this run):",
+            "    Rs%.0f (%s) is funded while Rs%.0f (%s) is outbid -- %.1fx larger,"
+            % (ev["funded_amount"], smaller.item_id, ev["outbid_amount"],
+               ev["outbid_item"], ev["amount_ratio"]),
+            "    but a thinner rupee of recovery, so the same budget recovers more elsewhere.",
+        ]
+    return "\n".join(out)
+
+
 def command_demo(args: argparse.Namespace) -> int:
     policy = _policy(args)
     fixture = generate(seed=args.seed, size=args.size)
+    # Always attempt the model arm, exactly as eval and ui do: with no API key
+    # the honest result is a measured "0 calls, 100% fallback", and running it
+    # lets `make demo` show the AI-boundary ablation rather than an absent arm.
+    args.model = True
     results = run_all(fixture, policy, _classifier(args))
 
+    # 1. BASELINES -- the honest, unbiased comparison the headline numbers rest
+    #    on, with the AI ablation and the aggregate suppression count.
     print(report_module.headline(results, fixture, policy))
     print()
-
     desk = next(r for r in results if r.arm_id in ("B3", "B3*"))
     print(report_module.suppression_summary(desk))
     print()
-
-    trace_item = args.item or _pick_trace_item(desk)
-    if trace_item:
-        print(report_module.decision_trace(desk, trace_item))
-        print()
-
     print(report_module.ablation_summary(results))
+    print()
+
+    # 2. THE STRONGEST MOMENTS -- generate the web data the workspace reads and
+    #    walk the real decisions the scarcity scenario exposes. The 1,000-item
+    #    evaluation is scored once and reused here, not run a second time.
+    data = generate_web_data(
+        DEFAULT_SEED, UI_DEFAULT_SIZE, UI_DEFAULT_BUDGET,
+        eval_fixture=fixture, eval_results=results, eval_policy=policy,
+    )
+    print(guided_moments(data))
+    print()
+
+    # 3. THE SIGNATURE TRACE, in full -- the counterintuitive one: a large
+    #    payment whose priciest action carries the highest expected value and
+    #    still loses, because under a binding budget the desk buys the denser
+    #    rupee. `--item` overrides it for any other id in the scenario.
+    trace_item = args.item or "itm_h0003"
+    print(report_module.decision_trace(data.scenario_arm, trace_item))
 
     if not args.no_write:
         run_dir = report_module.write_run(fixture, results, policy)
@@ -176,6 +269,11 @@ def command_demo(args: argparse.Namespace) -> int:
         print("\nwritten  %s" % run_dir)
         print("appended %s" % report_module.RUNS_CSV)
 
+    print(
+        "\nSEE IT  ---  every moment above is one click away in the product:\n"
+        "  python run.py ui         serves the allocation workspace at http://127.0.0.1:8756/\n"
+        "  then open Evaluation     the B0-B3 baseline comparison, ablation and cases"
+    )
     return 0
 
 
@@ -261,65 +359,52 @@ WEB_DIR = Path(__file__).resolve().parents[2] / "web"
 WEB_DATA_DIR = WEB_DIR / "data"
 
 
-def command_ui(args: argparse.Namespace) -> int:
-    """Generate data for both web pages and, unless told not to, serve them.
+def generate_web_data(
+    scenario_seed: int,
+    scenario_size: int,
+    scenario_budget: float,
+    eval_fixture=None,
+    eval_results: list[ArmResult] | None = None,
+    eval_policy: Policy | None = None,
+) -> SimpleNamespace:
+    """Write the three JSON files both web pages read, and return the objects.
 
-    Runs the desk on its own deterministic classifier -- no API key is needed to
-    see either page -- and writes the files each page fetches. Both come
-    straight out of ``contract.py``; nothing here computes a decision.
+    This is the single generator for the UI data, shared by ``ui`` and ``demo``
+    so the two can never drift. Nothing here computes a decision: the scenario
+    arm and the evaluation arms are real runs, and every field written comes
+    straight out of ``contract.py``.
 
-    Allocation workspace (``index.html``): ``web/data/run.json`` (overview and
-    queue) and ``web/data/decisions.json`` (the full priced table per item), from
-    the constructed scarcity scenario.
-
-    Evaluation replay (``evaluate.html``): ``web/data/evidence.json`` (the B0-B3
-    comparison, the exception list and the representative cases), from the same
-    1,000-item unbiased fixture and Rs2,500 budget the README's numbers come
-    from -- comparable conditions, not the scarcity scenario.
+    Allocation workspace (``index.html``) reads ``run.json`` and
+    ``decisions.json`` from the constructed scarcity scenario. Evaluation replay
+    (``evaluate.html``) reads ``evidence.json`` from the 1,000-item unbiased
+    fixture and Rs2,500 budget the README's numbers come from -- comparable
+    conditions, not the scenario. The caller may pass an evaluation run it has
+    already computed (``demo`` does, to avoid running the same 1,000 items
+    twice); otherwise one is generated at the documented defaults.
     """
-    policy = Policy(budget=args.budget)
-    fixture = generate_scenario(seed=args.seed, size=args.size)
-    arm = run_arm(fixture, RecoveryDesk(), policy, DeterministicClassifier(),
-                   arm_id="B3*", name="Recovery Desk")
-
+    scen_policy = Policy(budget=scenario_budget)
+    scenario_fixture = generate_scenario(seed=scenario_seed, size=scenario_size)
+    arm = run_arm(scenario_fixture, RecoveryDesk(), scen_policy,
+                  DeterministicClassifier(), arm_id="B3*", name="Recovery Desk")
     water = waterline_density(arm)
-    workspace = build_workspace(fixture, arm, policy, hero_labels=HERO_LABELS)
-    decisions = build_decisions(
-        fixture, arm, waterline=water, hero_labels=HERO_LABELS
-    )
+    workspace = build_workspace(scenario_fixture, arm, scen_policy, hero_labels=HERO_LABELS)
+    decisions = build_decisions(scenario_fixture, arm, waterline=water, hero_labels=HERO_LABELS)
 
     WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    (WEB_DATA_DIR / "run.json").write_text(
-        json.dumps(workspace, indent=1), encoding="utf-8"
-    )
-    (WEB_DATA_DIR / "decisions.json").write_text(
-        json.dumps(decisions, indent=1), encoding="utf-8"
-    )
+    (WEB_DATA_DIR / "run.json").write_text(json.dumps(workspace, indent=1), encoding="utf-8")
+    (WEB_DATA_DIR / "decisions.json").write_text(json.dumps(decisions, indent=1), encoding="utf-8")
 
-    m = arm.metrics
-    sc = workspace["overview"]["scarcity"]
-    print(
-        "workspace data written  %s\n"
-        "  %d items, Rs%.0f at risk, budget Rs%.0f\n"
-        "  demanded spend Rs%.0f -> budget funds %d of %d worth chasing (%d outbid)\n"
-        "  recovered Rs%.0f net on Rs%.0f spent; waterline density Rs%.1f per rupee\n"
-        "  wrote %s\n  wrote %s"
-        % (
-            fixture.id, fixture.size, fixture.total_at_risk, policy.budget,
-            sc["demanded_spend"], sc["items_funded"], sc["items_worth_chasing"],
-            sc["items_outbid"], m.net_recovered, m.total_spend,
-            sc["waterline_density"],
-            WEB_DATA_DIR / "run.json", WEB_DATA_DIR / "decisions.json",
-        )
-    )
+    if eval_results is None:
+        eval_policy = DEFAULT_POLICY
+        eval_fixture = generate(seed=DEFAULT_SEED, size=DEFAULT_BATCH_SIZE)
+        # Always attempt the model arm -- same reasoning as command_eval: a real,
+        # measured "0 calls" is honest; silently omitting the arm is not.
+        eval_results = run_all(eval_fixture, eval_policy, ModelClassifier())
+    else:
+        eval_policy = eval_policy or DEFAULT_POLICY
 
-    eval_policy = DEFAULT_POLICY
-    eval_fixture = generate(seed=DEFAULT_SEED, size=DEFAULT_BATCH_SIZE)
-    # Always attempt the model arm here too -- same reasoning as command_eval:
-    # a real, measured "0 calls" is honest; silently omitting the arm is not.
-    eval_results = run_all(eval_fixture, eval_policy, ModelClassifier())
     eval_cases = find_cases(
-        eval_fixture, eval_results, scenario_fixture=fixture, scenario_result=arm
+        eval_fixture, eval_results, scenario_fixture=scenario_fixture, scenario_result=arm
     )
     b3_eval = next((r for r in eval_results if r.arm_id == "B3"), None)
     rules_dx_eval = next(r for r in eval_results if r.arm_id == "B3*").diagnoses
@@ -330,22 +415,54 @@ def command_ui(args: argparse.Namespace) -> int:
         eval_fixture, eval_results, eval_policy, eval_cases,
         ambiguity=ambiguity.to_dict(ambiguity_report),
     )
-    (WEB_DATA_DIR / "evidence.json").write_text(
-        json.dumps(evidence, indent=1), encoding="utf-8"
+    (WEB_DATA_DIR / "evidence.json").write_text(json.dumps(evidence, indent=1), encoding="utf-8")
+
+    return SimpleNamespace(
+        scenario_fixture=scenario_fixture,
+        scenario_arm=arm,
+        scenario_policy=scen_policy,
+        workspace=workspace,
+        eval_fixture=eval_fixture,
+        eval_results=eval_results,
+        eval_cases=eval_cases,
+        ambiguity_report=ambiguity_report,
     )
-    desk_eval = next(r for r in eval_results if r.arm_id in ("B3", "B3*"))
+
+
+def command_ui(args: argparse.Namespace) -> int:
+    """Generate the data for both web pages and, unless told not to, serve them."""
+    data = generate_web_data(args.seed, args.size, args.budget)
+    arm = data.scenario_arm
+    fixture = data.scenario_fixture
+    m = arm.metrics
+    sc = data.workspace["overview"]["scarcity"]
+    print(
+        "workspace data written  %s\n"
+        "  %d items, Rs%.0f at risk, budget Rs%.0f\n"
+        "  demanded spend Rs%.0f -> budget funds %d of %d worth chasing (%d outbid)\n"
+        "  recovered Rs%.0f net on Rs%.0f spent; waterline density Rs%.1f per rupee\n"
+        "  wrote %s\n  wrote %s"
+        % (
+            fixture.id, fixture.size, fixture.total_at_risk, data.scenario_policy.budget,
+            sc["demanded_spend"], sc["items_funded"], sc["items_worth_chasing"],
+            sc["items_outbid"], m.net_recovered, m.total_spend,
+            sc["waterline_density"],
+            WEB_DATA_DIR / "run.json", WEB_DATA_DIR / "decisions.json",
+        )
+    )
+    desk_eval = next(r for r in data.eval_results if r.arm_id in ("B3", "B3*"))
+    amb = data.ambiguity_report
     print(
         "\nevaluation data written  %s\n"
         "  B3* recovers %.1f%% of recoverable value vs B2's %.1f%% (%d cases found)\n"
         "  addressable ambiguity: Rs%.2f ceiling (%d items), Rs0.00 measured (%s)\n"
         "  wrote %s"
         % (
-            eval_fixture.id, desk_eval.metrics.recovery_rate * 100,
-            next(r for r in eval_results if r.arm_id == "B2").metrics.recovery_rate * 100,
-            len(eval_cases),
-            ambiguity_report.addressable_recoverable_value,
-            ambiguity_report.addressable_recoverable_items,
-            "model ran" if ambiguity_report.model_ran else "no API key, all fallback",
+            data.eval_fixture.id, desk_eval.metrics.recovery_rate * 100,
+            next(r for r in data.eval_results if r.arm_id == "B2").metrics.recovery_rate * 100,
+            len(data.eval_cases),
+            amb.addressable_recoverable_value, amb.addressable_recoverable_items,
+            "model ran" if amb.model_ran else "no API key, all fallback",
             WEB_DATA_DIR / "evidence.json",
         )
     )
@@ -378,17 +495,6 @@ def command_ui(args: argparse.Namespace) -> int:
         except KeyboardInterrupt:
             pass
     return 0
-
-
-def _pick_trace_item(arm: ArmResult) -> str | None:
-    """A chased item with a full table beats a suppressed one for a first look."""
-    chased = [
-        d for d in arm.decisions
-        if d.status is DecisionStatus.CHASE and d.ev_table
-    ]
-    if chased:
-        return max(chased, key=lambda d: d.ev).item_id
-    return arm.decisions[0].item_id if arm.decisions else None
 
 
 def build_parser() -> argparse.ArgumentParser:
