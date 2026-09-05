@@ -26,6 +26,53 @@ SYSTEM_PROMPT = (
     "Never invent a class outside the list."
 )
 
+#: Hard bound on evidence length, enforced regardless of what the model claims
+#: to have done. The prompt asks for "at most 12 words"; this is what actually
+#: guarantees it, so a verbose or adversarial response can't inflate the audit
+#: log or the UI with unbounded text.
+MAX_EVIDENCE_WORDS = 12
+
+
+def validate_payload(payload: object) -> dict | None:
+    """The one gate every model output passes through, cache hit or fresh call.
+
+    Returns a normalised, bounded dict, or None if anything about the payload is
+    wrong -- wrong shape, a class outside the closed enum, a confidence that
+    isn't a real number in [0, 1], or an evidence field that isn't text. None
+    means "reject and fall back"; it never means "raise and crash the batch."
+
+    This exists as one function, not two, because a cache entry is just a model
+    response from an earlier run -- if unvalidated output could reach a
+    Diagnosis by one path, a corrupted or hand-edited cache file would crash a
+    batch that never touched the network this run.
+    """
+    if not isinstance(payload, dict):
+        return None
+    try:
+        failure_class = FailureClass(payload["failure_class"])
+    except (KeyError, ValueError, TypeError):
+        return None
+
+    try:
+        confidence = float(payload["confidence"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (0.0 <= confidence <= 1.0):
+        return None
+
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, str) or not evidence.strip():
+        return None
+    words = evidence.split()
+    if len(words) > MAX_EVIDENCE_WORDS:
+        evidence = " ".join(words[:MAX_EVIDENCE_WORDS]) + "…"
+
+    return {
+        "failure_class": failure_class.value,
+        "confidence": confidence,
+        "evidence": evidence,
+    }
+
 
 class Classifier(Protocol):
     provenance: str
@@ -109,8 +156,13 @@ class ModelClassifier:
         key = signature(item.raw_gateway_context)
         cached = self._cache.get(key)
         if cached is not None:
-            self.cache_hits += 1
-            return self._to_diagnosis(item, cached)
+            validated = validate_payload(cached)
+            if validated is not None:
+                self.cache_hits += 1
+                return self._to_diagnosis(item, validated)
+            # A corrupted cache entry is treated exactly like a corrupted fresh
+            # response: rejected and counted, never trusted, never raised.
+            self.rejected_outputs += 1
 
         payload = self._call_model(item.raw_gateway_context)
         if payload is None:
@@ -121,11 +173,13 @@ class ModelClassifier:
         return self._to_diagnosis(item, payload)
 
     def _to_diagnosis(self, item: AtRiskItem, payload: dict) -> Diagnosis:
+        # payload is only ever a dict that has already passed validate_payload,
+        # from either call site above -- this is not a second validation gate.
         failure_class = FailureClass(payload["failure_class"])
         return Diagnosis(
             item_id=item.id,
             failure_class=failure_class,
-            confidence=float(payload["confidence"]),
+            confidence=payload["confidence"],
             evidence=payload["evidence"],
             recovery_prior=priors.headline_prior(failure_class),
             classifier_provenance=self.provenance,
@@ -146,22 +200,35 @@ class ModelClassifier:
                 system=SYSTEM_PROMPT % allowed,
                 messages=[{"role": "user", "content": raw}],
             )
-            text = response.content[0].text.strip()
-            text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
-            payload = json.loads(text)
-            # The enum is the bound. Anything outside it raises here and is counted.
-            FailureClass(payload["failure_class"])
-            self.calls_made += 1
-            return payload
-        except (ValueError, KeyError, TypeError, IndexError):
-            self.rejected_outputs += 1
-            return None
         except Exception:
-            # Transport, auth, rate limit: the batch continues on rules.
+            # Transport, auth, rate limit: a call that never completed is not a
+            # rejection, it is simply not a call. The batch falls back on rules.
             return None
 
-    def stats(self) -> dict[str, int]:
+        # The network round-trip happened; this counts as a call regardless of
+        # what the model said, because "calls_made" measures API usage, not
+        # output quality. Whether the output survives validation is separate.
+        self.calls_made += 1
+        try:
+            text = response.content[0].text.strip()
+            text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
+            raw_payload = json.loads(text)
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError):
+            self.rejected_outputs += 1
+            return None
+
+        validated = validate_payload(raw_payload)
+        if validated is None:
+            # Well-formed JSON, wrong contents: an invented class, an
+            # out-of-range confidence, empty evidence. Rejected all the same.
+            self.rejected_outputs += 1
+            return None
+        return validated
+
+    def stats(self) -> dict[str, int | bool | str]:
         return {
+            "model": self.model,
+            "had_api_key": self.available,
             "calls_made": self.calls_made,
             "cache_hits": self.cache_hits,
             "rejected_outputs": self.rejected_outputs,
