@@ -286,17 +286,34 @@
     });
   }
 
+  function showState(kind, title, detail) {
+    const main = document.querySelector("main");
+    const block = el("div", { class: "state-block" + (kind === "error" ? " is-error" : "") });
+    if (kind === "loading") block.appendChild(el("div", { class: "state-progress" }));
+    block.appendChild(el("div", { class: "state-title", text: title }));
+    const detailEl = el("div", { class: "state-detail" });
+    detailEl.innerHTML = detail;
+    block.appendChild(detailEl);
+    main.innerHTML = "";
+    main.appendChild(block);
+  }
+
   async function init() {
+    const shell = document.querySelector("main").innerHTML;
+    showState("loading", "Loading evidence", "Reading the scored comparison for this run.");
     let doc;
     try {
       doc = await load();
     } catch (err) {
-      document.querySelector("main").innerHTML =
-        '<div class="empty-state">Could not load evaluation data (' +
-        err.message +
-        "). Run <code>python run.py ui</code> or <code>python run.py eval</code> first.</div>";
+      showState(
+        "error",
+        "Could not load evaluation data",
+        "<code>" + err.message + "</code><br>Run <code>python run.py ui</code> or " +
+          "<code>python run.py eval</code> to generate it, then reload."
+      );
       return;
     }
+    document.querySelector("main").innerHTML = shell;
     renderHeader(doc);
     renderArmTable(doc);
     renderDeltas(doc);

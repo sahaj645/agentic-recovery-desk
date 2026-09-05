@@ -337,6 +337,23 @@
       body.appendChild(tr);
     });
 
+    // Filtering to nothing previously left a bare table with no explanation.
+    // The chrome stays, because the toolbar above is how you get back out.
+    if (rows.length === 0) {
+      const filterName = { chase: "Chasing", suppressed: "Not worth chasing" }[currentFilter];
+      const bits = [];
+      if (filterName) bits.push("the <em>" + filterName + "</em> filter");
+      if (currentSearch.trim()) bits.push('a search for "' + currentSearch.trim() + '"');
+      const cell = el("td", { colspan: "8" });
+      cell.appendChild(el("span", { class: "state-title", text: "No opportunities match" }));
+      const detail = el("span");
+      detail.innerHTML = bits.length
+        ? "Nothing in this batch matches " + bits.join(" and ") + "."
+        : "This batch is empty.";
+      cell.appendChild(detail);
+      body.appendChild(el("tr", { class: "queue-empty" }, [cell]));
+    }
+
     document.getElementById("row-count").textContent =
       rows.length.toLocaleString("en-IN") + " of " + RUN.queue.length.toLocaleString("en-IN");
   }
@@ -653,16 +670,40 @@
     });
   }
 
+  function showState(kind, title, detail) {
+    // Loading, empty and error are the same moment -- nothing to show yet and
+    // an explanation owed -- so they share one block rather than looking like
+    // three different products.
+    const main = document.querySelector("main");
+    const block = el("div", { class: "state-block" + (kind === "error" ? " is-error" : "") });
+    if (kind === "loading") block.appendChild(el("div", { class: "state-progress" }));
+    block.appendChild(el("div", { class: "state-title", text: title }));
+    const detailEl = el("div", { class: "state-detail" });
+    detailEl.innerHTML = detail;
+    block.appendChild(detailEl);
+    main.innerHTML = "";
+    main.appendChild(block);
+  }
+
   async function init() {
+    const shell = document.querySelector("main").innerHTML;
+    showState(
+      "loading",
+      "Loading batch",
+      "Reading the decision record for this run — the priced action table for every item."
+    );
     try {
       await load();
     } catch (err) {
-      document.querySelector("main").innerHTML =
-        '<div class="empty-state">Could not load workspace data (' +
-        err.message +
-        "). Run <code>python run.py ui</code> from the repository root first.</div>";
+      showState(
+        "error",
+        "Could not load workspace data",
+        "<code>" + err.message + "</code><br>Run <code>python run.py ui</code> from " +
+          "the repository root to regenerate it, then reload."
+      );
       return;
     }
+    document.querySelector("main").innerHTML = shell;
     renderHeader();
     renderFunnel();
     renderScarcity();

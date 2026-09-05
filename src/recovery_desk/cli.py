@@ -356,9 +356,21 @@ def command_ui(args: argparse.Namespace) -> int:
     import functools
     import http.server
 
-    handler = functools.partial(
-        http.server.SimpleHTTPRequestHandler, directory=str(WEB_DIR)
-    )
+    class _NoCacheHandler(http.server.SimpleHTTPRequestHandler):
+        """Serve the preview without caching.
+
+        This is a development preview server: the whole point is to edit a
+        stylesheet or regenerate a batch and immediately see the result. The
+        default handler lets a browser hold on to app.js, styles.css and
+        run.json, so an edit appears to do nothing and -- far worse -- a demo
+        can be given against assets that are several changes stale.
+        """
+
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-store, must-revalidate")
+            super().end_headers()
+
+    handler = functools.partial(_NoCacheHandler, directory=str(WEB_DIR))
     with http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler) as httpd:
         print("\nserving  http://127.0.0.1:%d/  (Ctrl+C to stop)" % args.port)
         try:
