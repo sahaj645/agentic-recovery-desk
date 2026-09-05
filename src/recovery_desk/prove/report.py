@@ -212,11 +212,30 @@ def ablation_summary(results: Sequence[ArmResult]) -> str:
     if delta is None:
         return (
             "ABLATION  ---  not run.\n"
-            "  No model arm in this run, so no claim is made about what the model\n"
-            "  contributes. Set ANTHROPIC_API_KEY and pass --model to measure it."
+            "  No B3 arm in this run. Run `eval` (the ablation is always attempted\n"
+            "  there) or pass --model to `demo` to measure it."
         )
-    return (
+
+    by_id = {r.arm_id: r for r in results}
+    stats = by_id["B3"].classifier_stats or {}
+    calls = stats.get("calls_made", 0)
+    fallbacks = stats.get("fallbacks_used", 0)
+    rejected = stats.get("rejected_outputs", 0)
+    had_key = stats.get("had_api_key", False)
+
+    header = (
         "ABLATION  ---  B3 minus B3* (model classifier vs deterministic)\n"
+        "  classifier: %d calls made, %d fallbacks, %d rejected, api key %s\n"
+        % (calls, fallbacks, rejected, "present" if had_key else "absent")
+    )
+    if calls == 0:
+        header += (
+            "  0 calls succeeded: every item fell back to rules, so B3 is\n"
+            "  identical to B3* by construction. This is a measured result, not\n"
+            "  a skipped one -- the model was genuinely attempted %d times.\n"
+            % fallbacks
+        )
+    return header + (
         "  net recovered    %+.2f\n"
         "  gross recovered  %+.2f\n"
         "  wasted spend     %+.2f\n"

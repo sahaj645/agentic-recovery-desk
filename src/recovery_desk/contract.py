@@ -766,6 +766,7 @@ def build_evidence(
     results: Sequence[ArmResult],
     policy: Policy,
     cases: Sequence[Any] = (),
+    ambiguity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The document the evaluation-replay page reads: comparison plus proof.
 
@@ -808,4 +809,5 @@ def build_evidence(
             }
             for c in cases
         ],
+        "ambiguity": ambiguity,
     }

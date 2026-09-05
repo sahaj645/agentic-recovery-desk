@@ -20,6 +20,7 @@ from .fixtures.generator import generate
 from .fixtures.scenario import HERO_LABELS, generate_scenario
 from .models import DecisionStatus
 from .prove import report as report_module
+from .prove import ambiguity
 from .prove.cases import find_cases
 from .prove.harness import ArmResult, run_arm, run_all
 from .decide.strategies import RecoveryDesk
@@ -92,6 +93,43 @@ def exception_list(fixture, arm: ArmResult) -> str:
             (1, 2, 3, 4, 5),
         )
     )
+
+
+def ambiguity_text(report) -> str:
+    """Where AI could add information rules structurally cannot -- and did it.
+
+    Two numbers that must never be confused: the ceiling (what perfect
+    classification of the ambiguous zone would be worth, computed from ground
+    truth, never available to the desk) and the measured result (what the
+    model actually resolved, only nonzero if it was genuinely invoked and its
+    output was not itself a fallback).
+    """
+    lines = [
+        "ADDRESSABLE AMBIGUITY  ---  where rules-only classification runs out",
+        "  %d of %d items (Rs%.2f) are UNKNOWN or low-confidence to rules alone"
+        % (report.uncertain_items, report.total_items, report.uncertain_value),
+        "  of which %d items (Rs%.2f) are genuinely recoverable per ground truth"
+        % (report.addressable_recoverable_items, report.addressable_recoverable_value),
+        "  -- CEILING, not a result: the most a perfect classifier could be",
+        "     worth here, before EV, budget or policy touch it at all.",
+    ]
+    if report.model_ran:
+        lines.append(
+            "  MEASURED: the model resolved %d of those %d items, %d correctly"
+            % (
+                report.model_resolved_items,
+                report.uncertain_items,
+                report.model_correctly_classified_items,
+            )
+        )
+    else:
+        lines.append(
+            "  MEASURED: 0 -- no model was genuinely invoked this run (no API key,"
+        )
+        lines.append(
+            "     or every attempt fell back), so no uplift is claimed on this zone."
+        )
+    return "\n".join(lines)
 
 
 def regression_table(path: Path, limit: int = 12) -> str:
@@ -170,6 +208,17 @@ def command_eval(args: argparse.Namespace) -> int:
     print(report_module.ablation_summary(last_results))
     print()
 
+    ambiguity_report = None
+    b3 = next((r for r in last_results if r.arm_id == "B3"), None)
+    rules_only_dx = next(
+        r for r in last_results if r.arm_id == "B3*"
+    ).diagnoses
+    ambiguity_report = ambiguity.measure(
+        last_fixture, rules_only_dx, b3.diagnoses if b3 else None
+    )
+    print(ambiguity_text(ambiguity_report))
+    print()
+
     print(regression_table(report_module.RUNS_CSV))
 
     # The "smaller but better" case needs a budget that genuinely binds against
@@ -192,7 +241,10 @@ def command_eval(args: argparse.Namespace) -> int:
 
     if not args.no_write:
         run_dir = report_module.write_run(last_fixture, last_results, policy)
-        evidence = build_evidence(last_fixture, last_results, policy, cases)
+        evidence = build_evidence(
+            last_fixture, last_results, policy, cases,
+            ambiguity=ambiguity.to_dict(ambiguity_report),
+        )
         evidence_path = report_module.REPORTS_DIR / "evidence.json"
         evidence_path.write_text(json.dumps(evidence, indent=1), encoding="utf-8")
         print("\nwritten  %s" % run_dir)
@@ -269,7 +321,15 @@ def command_ui(args: argparse.Namespace) -> int:
     eval_cases = find_cases(
         eval_fixture, eval_results, scenario_fixture=fixture, scenario_result=arm
     )
-    evidence = build_evidence(eval_fixture, eval_results, eval_policy, eval_cases)
+    b3_eval = next((r for r in eval_results if r.arm_id == "B3"), None)
+    rules_dx_eval = next(r for r in eval_results if r.arm_id == "B3*").diagnoses
+    ambiguity_report = ambiguity.measure(
+        eval_fixture, rules_dx_eval, b3_eval.diagnoses if b3_eval else None
+    )
+    evidence = build_evidence(
+        eval_fixture, eval_results, eval_policy, eval_cases,
+        ambiguity=ambiguity.to_dict(ambiguity_report),
+    )
     (WEB_DATA_DIR / "evidence.json").write_text(
         json.dumps(evidence, indent=1), encoding="utf-8"
     )
@@ -277,11 +337,15 @@ def command_ui(args: argparse.Namespace) -> int:
     print(
         "\nevaluation data written  %s\n"
         "  B3* recovers %.1f%% of recoverable value vs B2's %.1f%% (%d cases found)\n"
+        "  addressable ambiguity: Rs%.2f ceiling (%d items), Rs0.00 measured (%s)\n"
         "  wrote %s"
         % (
             eval_fixture.id, desk_eval.metrics.recovery_rate * 100,
             next(r for r in eval_results if r.arm_id == "B2").metrics.recovery_rate * 100,
             len(eval_cases),
+            ambiguity_report.addressable_recoverable_value,
+            ambiguity_report.addressable_recoverable_items,
+            "model ran" if ambiguity_report.model_ran else "no API key, all fallback",
             WEB_DATA_DIR / "evidence.json",
         )
     )
