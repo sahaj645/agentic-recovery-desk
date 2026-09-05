@@ -38,17 +38,27 @@ def _policy(args: argparse.Namespace) -> Policy:
 
 
 def _classifier(args: argparse.Namespace) -> ModelClassifier | None:
+    """Build the B3 classifier if --model was asked for, and let it actually run.
+
+    Previously this returned None outright when no API key was present, which
+    meant the B3 arm was silently skipped rather than measured -- there was
+    never a real "0 calls, N fallbacks" number to report, only an absent arm.
+    The classifier's own classify() already falls back safely per item when it
+    has no key, so B3 now genuinely runs: every item is a real attempt, and the
+    ablation reports the true, measured result of that attempt -- which, with
+    no key, is that B3 is identical to B3* by construction, not by omission.
+    """
     if not args.model:
         return None
     classifier = ModelClassifier()
     if not classifier.available:
         print(
             "  note: --model was requested but ANTHROPIC_API_KEY is not set.\n"
-            "        Running the deterministic arms only; no claim will be made\n"
-            "        about what the model contributes.\n",
+            "        The B3 arm will still run -- every item attempts the model\n"
+            "        and falls back to rules, and that is reported as a measured\n"
+            "        result (0 calls, 100% fallback), not skipped.\n",
             file=sys.stderr,
         )
-        return None
     return classifier
 
 
@@ -137,6 +147,12 @@ def command_eval(args: argparse.Namespace) -> int:
     last_results: list[ArmResult] = []
     last_fixture = None
 
+    # The three-arm ablation the design asks for -- rules-only, the desk
+    # without AI, the desk with AI -- runs every time eval runs, not only when
+    # --model is passed. It is the point of the harness, not an optional extra,
+    # and a real, honestly-measured "0 calls, 100% fallback" result when no key
+    # is present is still the correct thing to report every time.
+    args.model = True
     for seed in seeds:
         fixture = generate(seed=seed, size=args.size)
         results = run_all(fixture, policy, _classifier(args))
@@ -153,6 +169,7 @@ def command_eval(args: argparse.Namespace) -> int:
     print()
     print(report_module.ablation_summary(last_results))
     print()
+
     print(regression_table(report_module.RUNS_CSV))
 
     # The "smaller but better" case needs a budget that genuinely binds against
@@ -246,7 +263,9 @@ def command_ui(args: argparse.Namespace) -> int:
 
     eval_policy = DEFAULT_POLICY
     eval_fixture = generate(seed=DEFAULT_SEED, size=DEFAULT_BATCH_SIZE)
-    eval_results = run_all(eval_fixture, eval_policy)
+    # Always attempt the model arm here too -- same reasoning as command_eval:
+    # a real, measured "0 calls" is honest; silently omitting the arm is not.
+    eval_results = run_all(eval_fixture, eval_policy, ModelClassifier())
     eval_cases = find_cases(
         eval_fixture, eval_results, scenario_fixture=fixture, scenario_result=arm
     )

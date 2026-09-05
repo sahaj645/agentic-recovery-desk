@@ -482,6 +482,7 @@ def build_proof(results: Sequence[ArmResult]) -> dict[str, Any]:
             "name": r.name,
             "description": r.description,
             "classifier": r.classifier_provenance,
+            "classifier_stats": r.classifier_stats,
             "metrics": metrics_dict(r.metrics),
         }
         for r in results

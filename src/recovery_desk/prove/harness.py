@@ -54,6 +54,11 @@ class ArmResult:
     diagnoses: dict[str, Diagnosis]
     ledger: Ledger
     run: BatchRun
+    #: Populated only when the classifier exposes .stats() (ModelClassifier).
+    #: None for every deterministic arm -- there is nothing to report, and a
+    #: missing dict is more honest than a dict of zeros that implies a model
+    #: was involved when it never was.
+    classifier_stats: dict | None = None
 
 
 def run_arm(
@@ -139,6 +144,9 @@ def run_arm(
         diagnoses=diagnoses,
         ledger=ledger,
         run=run,
+        classifier_stats=(
+            classifier.stats() if hasattr(classifier, "stats") else None
+        ),
     )
 
 
