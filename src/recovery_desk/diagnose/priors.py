@@ -23,8 +23,12 @@ SOURCE_STATUS = "UNVERIFIED: single industry source; second source required befo
 #: worth nothing at all.
 RECOVERY_PRIORS: dict[FailureClass, dict[ActionType, float]] = {
     FailureClass.BANK_TIMEOUT: {
-        ActionType.RETRY_NOW: 0.42,
-        ActionType.RETRY_SCHEDULED: 0.38,
+        # A PSP timeout is a transient outage: re-presenting the debit into the
+        # same outage fails, but a short-delayed retry after it clears succeeds.
+        # So a scheduled retry is worth far more than an immediate one, and both
+        # sit just under a premium reroute that sidesteps the outage outright.
+        ActionType.RETRY_NOW: 0.30,
+        ActionType.RETRY_SCHEDULED: 0.52,
         ActionType.ALTERNATE_RAIL: 0.55,
         ActionType.NUDGE_SMS: 0.05,
         ActionType.NUDGE_WHATSAPP: 0.07,

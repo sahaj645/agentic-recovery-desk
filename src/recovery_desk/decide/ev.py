@@ -140,7 +140,7 @@ def evaluate(
 ) -> tuple[ActionCandidate, EVBreakdown]:
     executed_at = schedule(item, diagnosis, action)
     p = probability(item, diagnosis, action, executed_at)
-    cost = policy.cost_of(action)
+    cost = policy.cost_of(action, item.amount)
     units = contact_fatigue(item, action, contacts_so_far)
     penalty = policy.lambda_fatigue * units
     gross = p * item.amount * policy.margin

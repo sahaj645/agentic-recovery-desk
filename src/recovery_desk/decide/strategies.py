@@ -163,7 +163,7 @@ class BlanketRetry:
     def plan(self, round_index, items, diagnoses, policy, ledger, run_id):
         decisions: list[Decision] = []
         elapsed: list[float] = []
-        cost = policy.cost_of(ActionType.RETRY_NOW)
+        cost = policy.cost_of(ActionType.RETRY_NOW, 0.0)
         delay = BLANKET_BACKOFF[round_index]
 
         for item in sorted(items, key=lambda i: i.occurred_at):
@@ -248,7 +248,7 @@ class RulesOnly:
             # salary-cycle rule belongs to the desk, not to the baseline.
             action, delay = rule
             scheduled_for = item.occurred_at + delay
-            cost = policy.cost_of(action)
+            cost = policy.cost_of(action, item.amount)
             gate = evaluate_gate(
                 item, diagnosis, action, cost, scheduled_for, policy, ledger
             )

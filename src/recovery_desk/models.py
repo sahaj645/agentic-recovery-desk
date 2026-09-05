@@ -158,9 +158,21 @@ class EVBreakdown:
 
     @property
     def ev_per_rupee(self) -> float:
-        """Ranking key for the allocator. Zero-cost actions cannot be ranked by ratio."""
-        spend = self.cost + self.fatigue_penalty
-        return self.ev / spend if spend > 0 else 0.0
+        """Expected net recovery per rupee of budget the action consumes.
+
+        The denominator is ``cost`` alone -- the cash the action draws from the
+        finite recovery budget -- not cost plus fatigue. Fatigue is a goodwill
+        penalty already subtracted inside ``ev``; it does not spend budget, so it
+        does not belong in the budget-density the allocator ranks on. This is the
+        classic value density of a knapsack, and it is what lets a Rs0.25 SMS
+        that clears Rs40 of EV outrank a Rs720 rail reroute that clears Rs4,000:
+        the desk is buying expected recovery with a scarce rupee, and density is
+        how much recovery each rupee buys.
+
+        Do-nothing has zero cost and is never ranked here; it is the floor every
+        funded action must beat, handled separately by the allocator.
+        """
+        return self.ev / self.cost if self.cost > 0 else 0.0
 
 
 @dataclass(frozen=True, slots=True)
