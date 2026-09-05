@@ -145,6 +145,101 @@
     }
   }
 
+  function renderAiBoundary(doc) {
+    const wrap = document.getElementById("ai-boundary");
+    wrap.innerHTML = "";
+
+    const arms = doc.proof.arms;
+    const b3 = arms.find((a) => a.arm_id === "B3");
+    const stats = b3 && b3.classifier_stats;
+    const amb = doc.ambiguity;
+
+    // -- what the model was actually asked to do, and what happened --------
+    const statusCard = el("div", { class: "ai-card" });
+    statusCard.appendChild(el("div", { class: "ai-card-label", text: "AI understands (diagnosis only)" }));
+    if (!b3 || !stats) {
+      statusCard.appendChild(
+        el("div", { class: "ai-card-body", text: "No B3 arm in this run. Diagnosis ran on rules alone." })
+      );
+    } else {
+      const line = (label, value) =>
+        el("div", { class: "ai-stat-row" }, [
+          el("span", { class: "ai-stat-label", text: label }),
+          el("span", { class: "ai-stat-val", text: value }),
+        ]);
+      statusCard.appendChild(line("Model", stats.model));
+      statusCard.appendChild(line("API key present", stats.had_api_key ? "yes" : "no"));
+      statusCard.appendChild(line("Calls made", String(stats.calls_made)));
+      statusCard.appendChild(line("Rejected (malformed output)", String(stats.rejected_outputs)));
+      statusCard.appendChild(line("Fell back to rules", String(stats.fallbacks_used)));
+      if (stats.calls_made === 0) {
+        statusCard.appendChild(
+          el("div", {
+            class: "ai-verdict neutral",
+            text: "Every item fell back to rules. B3 is identical to B3* by construction " +
+              "— a measured result, not a skipped arm.",
+          })
+        );
+      }
+    }
+    wrap.appendChild(statusCard);
+
+    // -- economics decides: unaffected regardless of the above -------------
+    const econCard = el("div", { class: "ai-card" });
+    econCard.appendChild(el("div", { class: "ai-card-label", text: "Economics decides (always deterministic)" }));
+    econCard.appendChild(
+      el("div", {
+        class: "ai-card-body",
+        text: "EV, budget allocation and the policy gate never consult a model, in any arm, " +
+          "regardless of the diagnosis stats above. Only the failure-class label and confidence " +
+          "cross this boundary.",
+      })
+    );
+    wrap.appendChild(econCard);
+
+    // -- the ceiling vs the measured result, kept visually distinct ---------
+    if (amb) {
+      const ambCard = el("div", { class: "ai-card ceiling" });
+      ambCard.appendChild(el("div", { class: "ai-card-label", text: "Addressable ambiguity" }));
+      ambCard.appendChild(
+        el("div", { class: "ai-stat-row" }, [
+          el("span", { class: "ai-stat-label", text: "Unresolved by rules" }),
+          el("span", { class: "ai-stat-val", text: amb.uncertain_items + " items · " + rupees(amb.uncertain_value) }),
+        ])
+      );
+      ambCard.appendChild(
+        el("div", { class: "ai-stat-row" }, [
+          el("span", { class: "ai-stat-label", text: "Ceiling (genuinely recoverable, ground truth)" }),
+          el("span", {
+            class: "ai-stat-val ceiling-val",
+            text: amb.addressable_recoverable_items + " items · " + rupees(amb.addressable_recoverable_value),
+          }),
+        ])
+      );
+      ambCard.appendChild(
+        el("div", { class: "ai-stat-row" }, [
+          el("span", { class: "ai-stat-label", text: "Measured (model actually resolved)" }),
+          el("span", {
+            class: "ai-stat-val " + (amb.model_ran ? "measured-val" : "measured-zero"),
+            text: amb.model_ran
+              ? amb.model_resolved_items + " resolved, " + amb.model_correctly_classified_items + " correct"
+              : "0 — not genuinely invoked this run",
+          }),
+        ])
+      );
+      ambCard.appendChild(
+        el("div", {
+          class: "ai-verdict " + (amb.model_ran ? "positive" : "neutral"),
+          text: amb.model_ran
+            ? "AI resolved a measured share of the ambiguous zone this run."
+            : "The ceiling is an upper bound, not a claim. No uplift is reported because no model " +
+              "genuinely ran against this fixture.",
+        })
+      );
+      wrap.appendChild(ambCard);
+    }
+  }
+
   function renderExceptions(doc) {
     const body = document.getElementById("exceptions-body");
     body.innerHTML = "";
@@ -205,6 +300,7 @@
     renderHeader(doc);
     renderArmTable(doc);
     renderDeltas(doc);
+    renderAiBoundary(doc);
     renderExceptions(doc);
     renderCases(doc);
   }

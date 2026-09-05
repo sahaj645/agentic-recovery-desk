@@ -299,6 +299,65 @@
 
   // ---------------------------------------------------------------- detail
 
+  const AI_PROVENANCE_PREFIX = "model:";
+
+  function renderBoundaryStepper(detail, chosen, isChase) {
+    // The architectural boundary the design insists stay visible: AI can only
+    // ever inform the diagnosis stage. Everything after it -- the EV, the
+    // budget competition, the policy gate -- is arithmetic and rule lookups
+    // that no model touches. This banner names that boundary against this
+    // item's actual data, not as decoration.
+    const isAiClassifier = detail.failure.provenance.startsWith(AI_PROVENANCE_PREFIX);
+    const policyChecks = detail.policy_checks || [];
+    const allPassed = policyChecks.every((c) => c.passed);
+
+    const stage = (label, value, sub, cls) =>
+      el("div", { class: "stepper-stage" }, [
+        el("span", { class: "stepper-label", text: label }),
+        el("span", { class: "stepper-value" + (cls ? " " + cls : ""), text: value }),
+        el("span", { class: "stepper-sub", text: sub }),
+      ]);
+    const arrow = () => el("div", { class: "stepper-arrow", html: "&rarr;" });
+
+    const wrap = el("div", { class: "boundary-stepper" });
+    wrap.appendChild(
+      stage(
+        "AI understands",
+        isAiClassifier ? "Model" : "Rules",
+        FAILURE_LABEL[detail.failure.class] || detail.failure.class,
+        isAiClassifier ? "ai" : "rules"
+      )
+    );
+    wrap.appendChild(arrow());
+    wrap.appendChild(
+      stage(
+        "Economics decides",
+        chosen ? rupees(chosen.expected_value) : "—",
+        chosen ? ACTION_LABEL[chosen.action] || chosen.action : "no positive EV",
+        "econ"
+      )
+    );
+    wrap.appendChild(arrow());
+    wrap.appendChild(
+      stage(
+        "Policy controls",
+        policyChecks.length ? (allPassed ? "Cleared" : "Blocked") : "—",
+        policyChecks.length + " check" + (policyChecks.length === 1 ? "" : "s"),
+        allPassed ? "chase" : "suppress"
+      )
+    );
+    wrap.appendChild(arrow());
+    wrap.appendChild(
+      stage(
+        "Decision",
+        isChase ? "Chase" : "Suppress",
+        isChase ? ACTION_LABEL[detail.selected_action] || detail.selected_action : "not worth chasing",
+        isChase ? "chase" : "suppress"
+      )
+    );
+    return wrap;
+  }
+
   function candidateRow(candidate, isChosen) {
     const tr = el("tr");
     if (isChosen) tr.classList.add("selected");
@@ -344,6 +403,8 @@
     const chosen = detail.candidate_actions.find((c) => c.selected);
     const doNothing = detail.candidate_actions.find((c) => c.action === "do_nothing");
     const isChase = detail.status === "chase";
+
+    body.appendChild(renderBoundaryStepper(detail, chosen, isChase));
 
     // -- WHY THIS PAYMENT? --------------------------------------------
     const payWhy = el("div", { class: "why" });
