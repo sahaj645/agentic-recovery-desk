@@ -33,7 +33,13 @@ from typing import Any, Sequence
 
 from .config import Policy
 from .fixtures.generator import Fixture
-from .models import ActionType, DecisionStatus, Metrics
+from .models import (
+    ActionType,
+    Decision,
+    DecisionStatus,
+    Metrics,
+    SuppressionReason,
+)
 from .prove.harness import ArmResult, ablation_delta
 
 SCHEMA_VERSION = "1.0"
@@ -198,16 +204,65 @@ def build_queue(fixture: Fixture, arm: ArmResult) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------
 
 
-def build_decisions(fixture: Fixture, arm: ArmResult) -> dict[str, Any]:
+def waterline_density(arm: ArmResult) -> float:
+    """The clearing price of the budget auction.
+
+    Every chased action bought a rupee of budget at some density (its expected
+    value per rupee of cost). The least dense action the desk still chose to fund
+    is the waterline: the marginal rupee. Anything whose best density falls below
+    it was outbid -- not unrecoverable, just less efficient than what the budget
+    filled with first. This single number is what turns "suppressed for budget"
+    from a shrug into an argument.
+    """
+    densities = [
+        d.ev / d.estimated_cost
+        for d in arm.decisions
+        if d.status is DecisionStatus.CHASE and d.estimated_cost > 0
+    ]
+    return min(densities) if densities else 0.0
+
+
+def _competitive_density(decision: Decision) -> float | None:
+    """The item's best density ignoring only the budget block.
+
+    A cap or a frozen account genuinely removes an action; the budget does not --
+    it just could not afford it this time. So competition is judged on the
+    densest action the item could have taken with money in hand, which is exactly
+    the actions that are either eligible or blocked solely for budget.
+    """
+    best: float | None = None
+    for e in decision.ev_table:
+        budget_only = e.block_reason == SuppressionReason.BUDGET_EXHAUSTED.value
+        if (e.eligible or budget_only) and e.breakdown.ev > 0 and e.breakdown.cost > 0:
+            best = e.breakdown.ev_per_rupee if best is None else max(
+                best, e.breakdown.ev_per_rupee
+            )
+    return best
+
+
+def build_decisions(
+    fixture: Fixture,
+    arm: ArmResult,
+    waterline: float | None = None,
+    hero_labels: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Every priced action for every item -- the signature surface of the desk."""
     items = {i.id: i for i in fixture.items}
     outcomes = {a.decision_id: a for a in arm.attempts}
+    hero_labels = hero_labels or {}
+    if waterline is None:
+        waterline = waterline_density(arm)
     detail: dict[str, Any] = {}
 
     for decision in arm.decisions:
         item = items[decision.item_id]
         diagnosis = arm.diagnoses[decision.item_id]
         attempt = outcomes.get(decision.decision_id)
+        competitive = _competitive_density(decision)
+        is_budget = (
+            decision.suppression_reason is not None
+            and decision.suppression_reason is SuppressionReason.BUDGET_EXHAUSTED
+        )
 
         detail[decision.item_id] = {
             "decision_id": decision.decision_id,
@@ -262,6 +317,17 @@ def build_decisions(fixture: Fixture, arm: ArmResult) -> dict[str, Any]:
                 if decision.suppression_reason
                 else None
             ),
+            "storyline": hero_labels.get(item.id),
+            "budget_competition": {
+                # The step in the trace between EV and the final decision: did
+                # this item's best rupee out-bid the marginal funded rupee?
+                "competitive_density": (
+                    round(competitive, 2) if competitive is not None else None
+                ),
+                "waterline_density": round(waterline, 2),
+                "cleared": decision.status is DecisionStatus.CHASE,
+                "decisive": is_budget,
+            },
             "rationale": decision.rationale,
             "provenance": decision.provenance,
             "scheduled_for": _iso(decision.scheduled_for),
@@ -538,7 +604,10 @@ def build_run(
             "max_contacts_per_customer": policy.max_contacts_per_customer,
             "contact_window_hours": policy.contact_window_hours,
             "dry_run": policy.dry_run,
-            "action_costs": {a.value: c for a, c in policy.action_costs.items()},
+            "action_costs": {
+                a.value: {"flat": c.flat, "pct_of_amount": c.pct_of_amount}
+                for a, c in policy.action_costs.items()
+            },
         },
         "arm": {
             "arm_id": arm.arm_id,
@@ -557,7 +626,52 @@ def build_run(
 # --------------------------------------------------------------------------
 
 
-def build_workspace(fixture: Fixture, arm: ArmResult, policy: Policy) -> dict[str, Any]:
+def _scarcity(fixture: Fixture, arm: ArmResult, policy: Policy) -> dict[str, Any]:
+    """The numbers that make "it cannot chase everyone" a fact, not a slogan.
+
+    Demanded spend is what it would cost to take the best positive action on
+    every item the desk would touch at any budget. When that exceeds the budget,
+    the budget is the binding constraint and the desk is genuinely rationing.
+    """
+    demanded = 0.0
+    contestable = 0
+    for decision in arm.decisions:
+        # The action the desk would fund with money to spare: the highest EV
+        # among the ones the budget alone is holding back. Its cost is what this
+        # item demands of the budget.
+        best_ev = -1.0
+        best_cost = 0.0
+        for e in decision.ev_table:
+            budget_only = e.block_reason == SuppressionReason.BUDGET_EXHAUSTED.value
+            if (e.eligible or budget_only) and e.breakdown.ev > 0 and e.breakdown.cost > 0:
+                if e.breakdown.ev > best_ev:
+                    best_ev = e.breakdown.ev
+                    best_cost = e.breakdown.cost
+        if best_ev > 0:
+            contestable += 1
+            demanded += best_cost
+    chased = [d for d in arm.decisions if d.status is DecisionStatus.CHASE]
+    return {
+        "budget": _money(policy.budget),
+        "demanded_spend": _money(demanded),
+        "budget_covers_demand": demanded <= policy.budget + 1e-6,
+        "items_worth_chasing": contestable,
+        "items_funded": len(chased),
+        "items_outbid": sum(
+            1
+            for d in arm.decisions
+            if d.suppression_reason is SuppressionReason.BUDGET_EXHAUSTED
+        ),
+        "waterline_density": round(waterline_density(arm), 2),
+    }
+
+
+def build_workspace(
+    fixture: Fixture,
+    arm: ArmResult,
+    policy: Policy,
+    hero_labels: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """The document the allocation-workspace frontend reads.
 
     Narrower than ``build_run``: one arm, no baseline comparison. It exists
@@ -565,6 +679,8 @@ def build_workspace(fixture: Fixture, arm: ArmResult, policy: Policy) -> dict[st
     detail for the desk itself, not the B0-B3 arm comparison -- that is the
     Proof surface's job, and it reads ``build_run`` instead.
     """
+    overview = build_overview(fixture, arm, policy)
+    overview["scarcity"] = _scarcity(fixture, arm, policy)
     return {
         "schema_version": SCHEMA_VERSION,
         "run_id": arm.run.id,
@@ -590,6 +706,10 @@ def build_workspace(fixture: Fixture, arm: ArmResult, policy: Policy) -> dict[st
             "name": arm.name,
             "classifier": arm.classifier_provenance,
         },
-        "overview": build_overview(fixture, arm, policy),
+        "overview": overview,
         "queue": build_queue(fixture, arm),
+        "heroes": [
+            {"item_id": iid, "storyline": label}
+            for iid, label in (hero_labels or {}).items()
+        ],
     }

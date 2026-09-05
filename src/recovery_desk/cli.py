@@ -14,20 +14,21 @@ import sys
 from pathlib import Path
 
 from .config import DEFAULT_BATCH_SIZE, DEFAULT_SEED, Policy
-from .contract import build_decisions, build_workspace
+from .contract import build_decisions, build_workspace, waterline_density
 from .diagnose.classifier import DeterministicClassifier, ModelClassifier
 from .fixtures.generator import generate
+from .fixtures.scenario import HERO_LABELS, generate_scenario
 from .models import DecisionStatus
 from .prove import report as report_module
 from .prove.harness import ArmResult, run_arm, run_all
 from .decide.strategies import RecoveryDesk
 
-#: Defaults tuned so the demo shows every decision state at once: chased items
-#: spanning high and low EV, negative-EV suppression, unrecoverable-class
-#: suppression, and a budget tight enough that budget-exhausted suppression
-#: actually binds. The default policy's Rs2,500 budget does not bind until the
-#: pool is much larger, so the UI demo uses its own smaller, tighter pair.
-UI_DEFAULT_SIZE = 350
+#: The scenario the workspace and the video run on. 600 items with a fat
+#: high-value tail (~Rs2.6M at risk) and a Rs900 budget: tight enough that ~90
+#: positive-value opportunities are outbid at the waterline, so the allocation -- not the
+#: detection -- is the visible behaviour. See fixtures/scenario.py for why this
+#: is a constructed batch rather than an unbiased draw.
+UI_DEFAULT_SIZE = 600
 UI_DEFAULT_BUDGET = 900.0
 
 
@@ -193,13 +194,16 @@ def command_ui(args: argparse.Namespace) -> int:
     (the full priced table per item, for the detail panel). Both come straight
     out of ``contract.py``; nothing here computes a decision.
     """
-    policy = Policy(budget=args.budget, version="policy-v1")
-    fixture = generate(seed=args.seed, size=args.size)
+    policy = Policy(budget=args.budget)
+    fixture = generate_scenario(seed=args.seed, size=args.size)
     arm = run_arm(fixture, RecoveryDesk(), policy, DeterministicClassifier(),
                    arm_id="B3*", name="Recovery Desk")
 
-    workspace = build_workspace(fixture, arm, policy)
-    decisions = build_decisions(fixture, arm)
+    water = waterline_density(arm)
+    workspace = build_workspace(fixture, arm, policy, hero_labels=HERO_LABELS)
+    decisions = build_decisions(
+        fixture, arm, waterline=water, hero_labels=HERO_LABELS
+    )
 
     WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
     (WEB_DATA_DIR / "run.json").write_text(
@@ -210,16 +214,18 @@ def command_ui(args: argparse.Namespace) -> int:
     )
 
     m = arm.metrics
+    sc = workspace["overview"]["scarcity"]
     print(
         "workspace data written  %s\n"
         "  %d items, Rs%.0f at risk, budget Rs%.0f\n"
-        "  chased %d  suppressed %d  recovered %d (%.1f%% of recoverable)\n"
-        "  wrote %s\n"
-        "  wrote %s"
+        "  demanded spend Rs%.0f -> budget funds %d of %d worth chasing (%d outbid)\n"
+        "  recovered Rs%.0f net on Rs%.0f spent; waterline density Rs%.1f per rupee\n"
+        "  wrote %s\n  wrote %s"
         % (
             fixture.id, fixture.size, fixture.total_at_risk, policy.budget,
-            m.items_chased, m.items_suppressed, m.items_recovered,
-            m.recovery_rate * 100,
+            sc["demanded_spend"], sc["items_funded"], sc["items_worth_chasing"],
+            sc["items_outbid"], m.net_recovered, m.total_spend,
+            sc["waterline_density"],
             WEB_DATA_DIR / "run.json", WEB_DATA_DIR / "decisions.json",
         )
     )
