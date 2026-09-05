@@ -15,8 +15,9 @@ and the simulator share a spreadsheet.
     rail_affinity
     draws
 
-The two sets are disjoint, and ``tests/test_firewall.py`` asserts it against
-the actual dataclass fields rather than against a comment.
+The two sets are disjoint, and the ``test_circularity_firewall`` invariant in
+``tests/test_invariants.py`` asserts it against the actual dataclass fields
+rather than against a comment.
 
 The desk can observe the *calendar* — it knows when Indian salary credits
 typically land. It cannot observe ``balance_recovers_at``, which is drawn with
