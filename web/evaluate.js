@@ -34,6 +34,17 @@
     }
   };
 
+  // A ratio with nothing in its denominator is undefined, not zero. An arm that
+  // never chased anything has no chase precision, and one that never recovered
+  // anything has no cost per rupee recovered -- B0 is exactly that arm. Printing
+  // 0.0000 there reads as a measured result, so these fall back to the same "—"
+  // the README uses for the identical cells.
+  const UNDEFINED_WHEN = {
+    chase_precision: (m) => !m.items_chased,
+    contacts_per_rupee_recovered: (m) => !m.items_recovered,
+    cost_per_rupee_recovered: (m) => !m.items_recovered,
+  };
+
   const el = (tag, attrs, children) => {
     const node = document.createElement(tag);
     if (attrs) {
@@ -81,7 +92,13 @@
         el("td", { class: "label", text: arm.arm_id + "  " + arm.name }),
       ]);
       METRIC_COLUMNS.forEach(([key, , kind]) => {
-        row.appendChild(el("td", { class: "num", text: fmt(arm.metrics[key], kind) }));
+        const undefinedHere = UNDEFINED_WHEN[key] && UNDEFINED_WHEN[key](arm.metrics);
+        row.appendChild(
+          el("td", {
+            class: "num" + (undefinedHere ? " undefined-metric" : ""),
+            text: undefinedHere ? "—" : fmt(arm.metrics[key], kind),
+          })
+        );
       });
       tbody.appendChild(row);
     });

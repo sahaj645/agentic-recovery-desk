@@ -35,6 +35,10 @@ table.metrics td {
   white-space: nowrap;
 }
 table.metrics td.label { font-family: var(--sans); font-weight: 600; }
+
+/* An undefined ratio (no chases, or no recoveries, to divide by) recedes so it
+   is not mistaken for a measured zero sitting next to real figures. */
+table.metrics td.undefined-metric { color: var(--ink-faint); }
 table.metrics tbody tr:last-child td { border-bottom: none; }
 table.metrics tr.primary td { background: var(--chase-bg); }
 table.metrics tr.primary td.label { color: var(--chase); }
