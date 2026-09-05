@@ -188,9 +188,9 @@
 
   function renderOverview() {
     const ov = RUN.overview;
+    const sc = ov.scarcity;
     const stats = [
       ["At-risk revenue", rupees(ov.total_at_risk)],
-      ["Recovery budget", rupees(ov.recovery_budget)],
       ["Expected recovery", rupees(ov.expected_recoverable_revenue)],
       ["Net expected recovery", rupees(ov.expected_net_recovery)],
       ["Selected opportunities", ov.items_chased.toLocaleString("en-IN")],
@@ -198,6 +198,38 @@
     ];
     const wrap = document.getElementById("overview");
     wrap.innerHTML = "";
+
+    // The budget is the constraint the entire product exists to allocate. It
+    // was previously one of six identical cells, which made the single most
+    // load-bearing number on the page the least visible. It now leads the row
+    // and carries its own utilisation, because "finite" is the whole point.
+    const committed = ov.allocated_recovery_spend;
+    const budget = ov.recovery_budget;
+    const usedPct = budget > 0 ? Math.min(100, (committed / budget) * 100) : 0;
+    const meter = el("div", { class: "budget-meter" });
+    const fill = el("div", { class: "budget-meter-fill" });
+    fill.style.width = usedPct.toFixed(1) + "%";
+    meter.appendChild(fill);
+
+    const demandNote = sc
+      ? rupees(sc.demanded_spend) +
+        " demanded · " +
+        (sc.demanded_spend / (budget || 1)).toFixed(1) +
+        "× the budget"
+      : rupees(committed) + " committed";
+
+    wrap.appendChild(
+      el("div", { class: "stat stat-budget" }, [
+        el("span", { class: "label", text: "Recovery budget" }),
+        el("span", { class: "value tabular", text: rupees(budget) }),
+        meter,
+        el("span", {
+          class: "budget-sub",
+          text: rupees(committed) + " committed (" + usedPct.toFixed(0) + "%) · " + demandNote,
+        }),
+      ])
+    );
+
     stats.forEach(([label, value]) => {
       wrap.appendChild(
         el("div", { class: "stat" }, [
@@ -230,26 +262,32 @@
     const maxAbsEv = rows.reduce((m, r) => Math.max(m, Math.abs(r.expected_value)), 1);
 
     rows.forEach((row) => {
-      const tr = el("tr", { "data-item": row.item_id });
+      // Rows are the primary control on this screen, so they are reachable and
+      // operable from the keyboard rather than mouse-only.
+      const tr = el("tr", {
+        "data-item": row.item_id,
+        tabindex: "0",
+        role: "button",
+        "aria-label": "Open decision trace for " + row.item_id,
+      });
       if (row.item_id === selectedItemId) tr.classList.add("selected");
+      if (row.status !== "chase") tr.classList.add("is-suppressed");
 
-      const idCell = el("td", {}, [
-        el("div", { text: row.item_id }),
-        el("div", {
-          class: "action-tag",
-          text: row.customer_id,
-          style: "color:var(--ink-faint);font-size:11px;",
-        }),
+      const idCell = el("td", { class: "anchor" }, [
+        el("div", { class: "item-id", text: row.item_id }),
+        el("div", { class: "customer-id", text: row.customer_id }),
       ]);
       if (HEROES[row.item_id]) {
-        idCell.querySelector("div").appendChild(el("span", { class: "hero-dot", title: HEROES[row.item_id] }));
+        idCell.querySelector(".item-id").appendChild(
+          el("span", { class: "hero-dot", title: HEROES[row.item_id] })
+        );
       }
       tr.appendChild(idCell);
       tr.appendChild(el("td", { text: FAILURE_LABEL[row.failure_class] || row.failure_class }));
       tr.appendChild(el("td", { class: "num amount tabular", text: rupees(row.amount) }));
       tr.appendChild(el("td", { class: "num prob tabular", text: pct(row.recovery_probability) }));
 
-      const actionCell = el("td", {});
+      const actionCell = el("td", { class: "action-cell" });
       if (row.status === "chase") {
         actionCell.appendChild(
           el("span", { class: "action-tag", text: ACTION_LABEL[row.recommended_action] || row.recommended_action })
@@ -290,6 +328,12 @@
       tr.appendChild(statusCell);
 
       tr.addEventListener("click", () => openDetail(row.item_id));
+      tr.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openDetail(row.item_id);
+        }
+      });
       body.appendChild(tr);
     });
 
