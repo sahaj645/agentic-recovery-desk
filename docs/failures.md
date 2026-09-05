@@ -151,6 +151,73 @@ the author's machine fails the one property judges test first.
 
 ---
 
+## F7 — Pricing the premium rail correctly made the desk lose to rules-only
+
+**Symptom.** After changing the alternate-rail cost from a flat rupee amount to
+a percentage of the item's amount (so a big-ticket reroute is a real budget
+commitment, not free), Recovery Desk's net recovered on the standard evaluation
+fixture *dropped* from the previous run's number to below B2, the rules-only
+baseline — the exact regression the evaluation harness exists to catch.
+
+**Wrong hypothesis.** That the percentage-based cost itself was wrong, or too
+aggressive, and needed tuning down.
+
+**Root cause.** The allocator ranked items by their single best action's EV,
+then spent by ranking on `EV / (cost + fatigue)` — a density computed once per
+item using whichever action happened to have the highest raw EV. For a large
+timeout, that was often the premium reroute, whose EV is high but whose density
+is low once its real percentage-based cost is counted. Ranking the *item* by
+that action's low density buried a genuinely excellent item (its own cheap
+retry has an outstanding density) near the bottom of the spending order, so the
+budget filled with weaker items first.
+
+**Fix.** The allocator now solves for lambda, the budget's shadow price, and
+every item takes whichever action maximises `EV - lambda * cost` — including
+none, if even the best real action doesn't clear it. Ranking and spending both
+use this single, correct criterion instead of a per-item density computed from
+an arbitrarily chosen action. Net recovered against B2 went from worse to
+**+21.3%**.
+
+**Guard.** The evaluation harness catching this at all is the guard: the
+regression was visible in `results/runs.csv` and in `python run.py eval`'s
+headline table the moment it was run, not discovered later. No automated test
+pins the exact recovery-rate number, since the fixture and priors are expected
+to keep evolving; the invariant that *is* pinned is that `B3* net_recovered` is
+computed the same way every arm's is, so a real regression cannot hide.
+
+---
+
+## F8 — The "smaller but better" case does not occur in the evaluation fixture
+
+**Symptom.** Building an automated case-finder for the evidence report
+(`prove/cases.py`), four of the five representative cases the design asks for
+turned up immediately in the standard 1,000-item evaluation batch at its
+₹2,500 budget. The fifth — a smaller payment funded while a larger one is
+outbid — never did, across every seed tried.
+
+**Wrong hypothesis.** That the case-finder's search was too narrow (wrong
+amount ratio threshold, wrong suppression reason).
+
+**Root cause.** It is not a search bug. At the evaluation's standard budget, an
+unbiased 1,000-item draw's total demand for positive-EV actions never exceeds
+the budget by enough margin to force a genuine auction between a large item and
+a small one — `budget_exhausted` essentially does not appear in the
+suppression-reason breakdown at ₹2,500. Budget scarcity of the kind that
+produces this case is real but statistically rare in an unbiased draw; it is
+exactly why `fixtures/scenario.py` was built as a separate, constructed batch
+in the first place (see `docs/decisions.md`).
+
+**Fix.** The case-finder tries the evaluation fixture first, honestly. Only if
+that comes up empty does it fall back to the constructed scarcity scenario,
+and every case reports which fixture it came from — nothing is blended or
+silently substituted.
+
+**Guard.** `find_cases()`'s docstring states this explicitly, and the case
+narrative for "smaller but better" names its own source fixture in the text a
+reader sees, not just in a machine-readable field.
+
+---
+
 ## Unresolved exceptions
 
 Named here rather than left for someone else to find.

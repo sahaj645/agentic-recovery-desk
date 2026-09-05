@@ -39,19 +39,28 @@ Only the allocation policy differs.
 | arm | policy | gross | net | rate | wasted | precision | spend | cost/₹ | violations |
 |-----|--------|------:|----:|-----:|-------:|----------:|------:|-------:|-----------:|
 | B0 | Do nothing | 0 | 0 | 0.0% | 0 | – | 0 | – | 0 |
-| B1 | Blanket retry ×3 | 174,082 | 171,583 | 22.3% | 2,142 | 58.2% | 2,499 | 0.0144 | 0 |
-| B2 | Rules-only heuristic | 461,983 | 459,576 | 59.2% | 1,480 | 61.5% | 2,408 | 0.0052 | 0 |
-| **B3\*** | **Recovery Desk (no model)** | **526,924** | **524,424** | **67.6%** | **1,288** | **64.2%** | **2,500** | **0.0047** | **0** |
+| B1 | Blanket retry ×3 | 224,293 | 221,793 | 28.8% | 2,128 | 58.6% | 2,500 | 0.0111 | 0 |
+| B2 | Rules-only heuristic | 461,983 | 459,970 | 59.2% | 1,238 | 61.5% | 2,013 | 0.0044 | 0 |
+| **B3\*** | **Recovery Desk (no model)** | **560,165** | **557,742** | **71.8%** | **1,397** | **60.9%** | **2,423** | **0.0043** | **0** |
 
-`fx-20260905-1000`, `policy-v1`. Reproduce with `python run.py demo`.
+`fx-20260905-1000`, `policy-v2`. Reproduce with `python run.py demo`, or replay the
+full evaluation — comparison, exception list and five representative cases drawn
+from this exact run — at `python run.py ui` then open `web/evaluate.html`.
 
-**Read this honestly.** B2 — a static rules heuristic with no model and no
-expected-value arithmetic — captures most of the result. The desk's genuine
-margin over it is **+14.1% net recovered**, **13% less wasted spend** and
-**+2.7 points of chase precision**, at a p95 decision latency of 0.19 ms. That
-is the real number. The first version of this comparison showed a 37-point gap,
-and that was a bug in the baseline, not a result — see
-[F2 in the failure log](docs/failures.md).
+**Read this honestly.** The desk's margin over B2 — the strongest policy
+available without a model or an optimiser — is **+21.3% net recovered**
+(+₹97,772) and **+12.6 points of recovery rate**. That gain is not free: wasted
+spend is **+12.9%** and chase precision is **0.6 points lower**. The desk is
+not more careful than the rules-only bar; it is more aggressive, correctly,
+because its EV pricing finds recoverable value the static rules do not chase at
+all — and taking on a slightly higher miss rate to capture that value nets far
+more money than it costs. A weak baseline made this comparison look far better
+than it should have at first (see
+[F2 in the failure log](docs/failures.md)), and later, correctly pricing the
+premium rail as a percentage of the amount briefly made the desk look *worse*
+than B2 until the allocator's ranking was fixed to match (see
+[F7](docs/failures.md)). Both are recorded rather than quietly fixed and
+forgotten.
 
 **B3 (with the model) has not been run.** No `ANTHROPIC_API_KEY` was set during
 this build, so no claim is made about what the model contributes. The arm exists,
@@ -60,14 +69,19 @@ runs, the ablation line reads *not run* rather than a number.
 
 ### What was deliberately not chased
 
-263 of 1,000 items, worth ₹145,324. This is a headline, not a footnote.
+48 of 1,000 items, worth ₹52,322 (4.8% of the pool). This is a headline, not a
+footnote. At this budget, demand from the rest of the pool never exceeds
+₹2,500 hard enough to outbid a recoverable item — every suppression here is a
+refusal to chase something with no expectation of paying off, not a rationing
+decision. (Budget-driven rationing is real and demonstrated separately, in the
+allocation workspace's constructed scarcity scenario — see
+[F8 in the failure log](docs/failures.md).)
 
 | reason | items | value |
 |--------|------:|------:|
-| budget exhausted — spent on higher-yield items | 213 | ₹92,653 |
 | unrecoverable class — account blocked or frozen | 38 | ₹50,999 |
-| negative EV — the best action loses money | 11 | ₹1,502 |
-| policy blocked | 1 | ₹170 |
+| negative EV — the best action loses money | 6 | ₹627 |
+| policy blocked | 4 | ₹696 |
 
 ---
 
@@ -230,6 +244,34 @@ handicap, but it is stated here rather than left to be discovered.
 Every scored run appends to [`results/runs.csv`](results/runs.csv), including the
 runs that got worse.
 
+### Representative cases
+
+Five real items from one real run, not staged, that make the comparison
+legible without reading a metrics table:
+
+1. **B1 wastes real money.** Blanket retry fires a retry at an account the
+   issuer has already blocked — no failure classification, no way to know.
+2. **B2 misses on the calendar.** A balance failure retried on B2's fixed
+   24-hour clock fails; the same item, retried against the salary-credit
+   calendar instead, recovers.
+3. **The desk turns down a bad bet.** Every action on a real payment prices
+   below zero once cost and fatigue are counted, and the desk says so rather
+   than spending anyway.
+4. **The desk stands down on principle.** A blocked account's policy gate
+   refuses every action outright — some price above zero on paper, and the
+   gate blocks them anyway, because a frozen account is not a probability
+   question.
+5. **A smaller payment wins the budget.** Found in the constructed scarcity
+   scenario, since an unbiased 1,000-item draw at ₹2,500 never demands enough
+   of the premium tail to outbid anything (a real finding — see
+   [F8](docs/failures.md)).
+
+`python run.py ui` (or `python run.py eval`) writes all five, with full
+evidence, to `web/data/evidence.json` / `results/reports/evidence.json`. Open
+`web/evaluate.html` for the full replay: the arm comparison, the deltas, the
+unresolved-exceptions table and these five cases — an evidence report, not a
+dashboard.
+
 ---
 
 ## Honest limits
@@ -239,9 +281,14 @@ Named here rather than left to be found. The full list is in
 
 - **B3 has not been measured.** No API key during the build; the ablation reads
   *not run*.
-- **The desk under-forecasts itself** — ₹417k expected recoverable against ₹527k
+- **The desk under-forecasts itself** — ₹432k expected recoverable against ₹560k
   actually recovered. Its priors are conservative relative to the world it is
   scored against, and the calibration gap is not yet quantified per class.
+- **Chase precision is 0.6 points below B2's, and wasted spend is 12.9% higher.**
+  The desk is more aggressive, not more careful — it correctly chases more
+  marginal recoverable value than the static rules do, and the extra ₹97,772 of
+  net recovery is worth the extra ₹159 of waste, but the precision trade is real
+  and stated in the results table, not hidden behind the net-recovery headline.
 - **Salary-cycle timing is right on average, not per customer.** Items whose
   credit lands late are chased on the wrong day and counted as misses.
 - **`UNKNOWN` items are priced pessimistically and mostly suppressed**, so the
@@ -268,9 +315,12 @@ src/recovery_desk/
   diagnose/        classifier + deterministic fallback + published priors
   decide/          EV model, allocator, policy gate, baseline arms
   act/             dispatch, idempotency ledger, audit log
-  prove/           harness, metrics, reports
-  fixtures/        seeded generator + the outcome oracle
+  prove/           harness, metrics, reports, representative-case finder
+  fixtures/        seeded generator, the outcome oracle, the scarcity scenario
 results/           versioned run table (committed)
+web/
+  index.html       allocation workspace (funnel, queue, decision detail)
+  evaluate.html    evaluation replay (arm comparison, exceptions, cases)
 docs/
   design.md        the source-of-truth design document
   decisions.md     why each boundary is where it is

@@ -13,13 +13,14 @@ import json
 import sys
 from pathlib import Path
 
-from .config import DEFAULT_BATCH_SIZE, DEFAULT_SEED, Policy
-from .contract import build_decisions, build_workspace, waterline_density
+from .config import DEFAULT_BATCH_SIZE, DEFAULT_POLICY, DEFAULT_SEED, Policy
+from .contract import build_decisions, build_evidence, build_exceptions, build_workspace, waterline_density
 from .diagnose.classifier import DeterministicClassifier, ModelClassifier
 from .fixtures.generator import generate
 from .fixtures.scenario import HERO_LABELS, generate_scenario
 from .models import DecisionStatus
 from .prove import report as report_module
+from .prove.cases import find_cases
 from .prove.harness import ArmResult, run_arm, run_all
 from .decide.strategies import RecoveryDesk
 
@@ -58,36 +59,20 @@ def exception_list(fixture, arm: ArmResult) -> str:
     item the desk chased that was genuinely recoverable and did not come back --
     a timing or channel error. A *skip* is a recoverable item the desk never
     touched, which is either correct triage under budget or a pricing error.
+    The counting lives in ``contract.build_exceptions`` so the CLI's text table
+    and the evaluation-replay page can never drift apart on the numbers.
     """
-    truth = fixture.ground_truth
-    rows: dict[str, list[int]] = {}
-
-    recovered = {
-        a.item_id for a in arm.attempts if a.outcome.value == "recovered"
-    }
-    for decision in arm.decisions:
-        item_truth = truth[decision.item_id]
-        if not item_truth.is_recoverable:
-            continue
-        failure_class = arm.diagnoses[decision.item_id].failure_class.value
-        entry = rows.setdefault(failure_class, [0, 0, 0])
-        entry[0] += 1
-        if decision.status is DecisionStatus.CHASE:
-            if decision.item_id not in recovered:
-                entry[1] += 1
-        else:
-            entry[2] += 1
-
+    rows = build_exceptions(fixture, arm)
     table = [
         [
-            failure_class,
-            counts[0],
-            counts[1],
-            "%.0f%%" % (100 * counts[1] / counts[0]) if counts[0] else "-",
-            counts[2],
-            "%.0f%%" % (100 * counts[2] / counts[0]) if counts[0] else "-",
+            row["failure_class"],
+            row["recoverable"],
+            row["chased_but_missed"],
+            "%.0f%%" % (row["miss_rate"] * 100) if row["miss_rate"] is not None else "-",
+            row["skipped"],
+            "%.0f%%" % (row["skip_rate"] * 100) if row["skip_rate"] is not None else "-",
         ]
-        for failure_class, counts in sorted(rows.items(), key=lambda kv: -kv[1][0])
+        for row in rows
     ]
     return (
         "UNRESOLVED EXCEPTIONS  ---  recoverable items the desk did not recover\n"
@@ -170,9 +155,31 @@ def command_eval(args: argparse.Namespace) -> int:
     print()
     print(regression_table(report_module.RUNS_CSV))
 
+    # The "smaller but better" case needs a budget that genuinely binds against
+    # more than one competing item; an unbiased draw at this evaluation's budget
+    # does not (see docs/failures.md, F7). find_cases() falls back to the
+    # already-committed scarcity scenario for that one case only, and labels it.
+    scenario_fixture = generate_scenario(size=UI_DEFAULT_SIZE)
+    scenario_result = run_arm(
+        scenario_fixture, RecoveryDesk(), Policy(budget=UI_DEFAULT_BUDGET),
+        DeterministicClassifier(), arm_id="B3*", name="Recovery Desk",
+    )
+    cases = find_cases(
+        last_fixture, last_results,
+        scenario_fixture=scenario_fixture, scenario_result=scenario_result,
+    )
+    print("\nREPRESENTATIVE CASES  ---  %d found from this run\n" % len(cases))
+    for case in cases:
+        print("  [%s] %s" % (case.arm_id, case.title))
+        print("    item %s  Rs%.2f" % (case.item_id, case.amount))
+
     if not args.no_write:
         run_dir = report_module.write_run(last_fixture, last_results, policy)
+        evidence = build_evidence(last_fixture, last_results, policy, cases)
+        evidence_path = report_module.REPORTS_DIR / "evidence.json"
+        evidence_path.write_text(json.dumps(evidence, indent=1), encoding="utf-8")
         print("\nwritten  %s" % run_dir)
+        print("written  %s" % evidence_path)
 
     violations = sum(r.metrics.policy_violations for r in last_results)
     if violations:
@@ -186,13 +193,20 @@ WEB_DATA_DIR = WEB_DIR / "data"
 
 
 def command_ui(args: argparse.Namespace) -> int:
-    """Generate the allocation-workspace data and, unless told not to, serve it.
+    """Generate data for both web pages and, unless told not to, serve them.
 
     Runs the desk on its own deterministic classifier -- no API key is needed to
-    see the workspace -- and writes exactly two files the page fetches:
-    ``web/data/run.json`` (overview + queue) and ``web/data/decisions.json``
-    (the full priced table per item, for the detail panel). Both come straight
-    out of ``contract.py``; nothing here computes a decision.
+    see either page -- and writes the files each page fetches. Both come
+    straight out of ``contract.py``; nothing here computes a decision.
+
+    Allocation workspace (``index.html``): ``web/data/run.json`` (overview and
+    queue) and ``web/data/decisions.json`` (the full priced table per item), from
+    the constructed scarcity scenario.
+
+    Evaluation replay (``evaluate.html``): ``web/data/evidence.json`` (the B0-B3
+    comparison, the exception list and the representative cases), from the same
+    1,000-item unbiased fixture and Rs2,500 budget the README's numbers come
+    from -- comparable conditions, not the scarcity scenario.
     """
     policy = Policy(budget=args.budget)
     fixture = generate_scenario(seed=args.seed, size=args.size)
@@ -227,6 +241,29 @@ def command_ui(args: argparse.Namespace) -> int:
             sc["items_outbid"], m.net_recovered, m.total_spend,
             sc["waterline_density"],
             WEB_DATA_DIR / "run.json", WEB_DATA_DIR / "decisions.json",
+        )
+    )
+
+    eval_policy = DEFAULT_POLICY
+    eval_fixture = generate(seed=DEFAULT_SEED, size=DEFAULT_BATCH_SIZE)
+    eval_results = run_all(eval_fixture, eval_policy)
+    eval_cases = find_cases(
+        eval_fixture, eval_results, scenario_fixture=fixture, scenario_result=arm
+    )
+    evidence = build_evidence(eval_fixture, eval_results, eval_policy, eval_cases)
+    (WEB_DATA_DIR / "evidence.json").write_text(
+        json.dumps(evidence, indent=1), encoding="utf-8"
+    )
+    desk_eval = next(r for r in eval_results if r.arm_id in ("B3", "B3*"))
+    print(
+        "\nevaluation data written  %s\n"
+        "  B3* recovers %.1f%% of recoverable value vs B2's %.1f%% (%d cases found)\n"
+        "  wrote %s"
+        % (
+            eval_fixture.id, desk_eval.metrics.recovery_rate * 100,
+            next(r for r in eval_results if r.arm_id == "B2").metrics.recovery_rate * 100,
+            len(eval_cases),
+            WEB_DATA_DIR / "evidence.json",
         )
     )
 

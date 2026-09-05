@@ -713,3 +713,98 @@ def build_workspace(
             for iid, label in (hero_labels or {}).items()
         ],
     }
+
+
+# --------------------------------------------------------------------------
+# Evidence (evaluation replay: the B0-B3 comparison, exceptions and cases)
+# --------------------------------------------------------------------------
+
+
+def build_exceptions(fixture: Fixture, arm: ArmResult) -> list[dict[str, Any]]:
+    """Where the desk still gets it wrong, by failure class.
+
+    Two distinct failures, and conflating them would hide both. A *miss* is an
+    item the desk chased that was genuinely recoverable and did not come back --
+    a timing or channel error. A *skip* is a recoverable item the desk never
+    touched, which is either correct triage under budget or a pricing error.
+    This is the single source both the CLI's text table and the evaluation
+    replay page read, so the two cannot drift apart.
+    """
+    truth = fixture.ground_truth
+    rows: dict[str, list[int]] = {}
+    recovered = {a.item_id for a in arm.attempts if a.outcome.value == "recovered"}
+
+    for decision in arm.decisions:
+        item_truth = truth[decision.item_id]
+        if not item_truth.is_recoverable:
+            continue
+        failure_class = arm.diagnoses[decision.item_id].failure_class.value
+        entry = rows.setdefault(failure_class, [0, 0, 0])
+        entry[0] += 1
+        if decision.status is DecisionStatus.CHASE:
+            if decision.item_id not in recovered:
+                entry[1] += 1
+        else:
+            entry[2] += 1
+
+    return [
+        {
+            "failure_class": failure_class,
+            "recoverable": counts[0],
+            "chased_but_missed": counts[1],
+            "miss_rate": round(counts[1] / counts[0], 4) if counts[0] else None,
+            "skipped": counts[2],
+            "skip_rate": round(counts[2] / counts[0], 4) if counts[0] else None,
+        }
+        for failure_class, counts in sorted(rows.items(), key=lambda kv: -kv[1][0])
+    ]
+
+
+def build_evidence(
+    fixture: Fixture,
+    results: Sequence[ArmResult],
+    policy: Policy,
+    cases: Sequence[Any] = (),
+) -> dict[str, Any]:
+    """The document the evaluation-replay page reads: comparison plus proof.
+
+    Deliberately narrow. This is not the allocation workspace -- there is no
+    single-item queue here, because the point of this surface is the comparison
+    across arms and the handful of cases that make it legible, not one arm's
+    operating view. ``cases`` are ``prove.cases.Case`` objects; import is kept
+    out of the type signature to avoid a cycle, but each is expected to expose
+    the same fields ``cases_to_dicts`` reads.
+    """
+    by_id = {r.arm_id: r for r in results}
+    desk = by_id.get("B3") or by_id.get("B3*")
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "fixture": {
+            "id": fixture.id,
+            "seed": fixture.seed,
+            "size": fixture.size,
+            "total_at_risk": _money(fixture.total_at_risk),
+            "recoverable_value": _money(
+                sum(t.amount for t in fixture.ground_truth.values() if t.is_recoverable)
+            ),
+        },
+        "policy": {
+            "version": policy.version,
+            "budget": _money(policy.budget),
+        },
+        "proof": build_proof(list(results)),
+        "exceptions": build_exceptions(fixture, desk) if desk else [],
+        "cases": [
+            {
+                "id": c.id,
+                "title": c.title,
+                "arm_id": c.arm_id,
+                "item_id": c.item_id,
+                "amount": round(c.amount, 2),
+                "narrative": c.narrative,
+                "evidence": c.evidence,
+            }
+            for c in cases
+        ],
+    }
