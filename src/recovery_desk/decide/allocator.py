@@ -1,17 +1,28 @@
 """Stage 3. Allocate a finite budget across a heterogeneous pool.
 
-Selection is greedy on EV-per-rupee-spent. That is a deliberate choice over a
-fancier optimiser: greedy is O(n log n), it is explainable line by line, and it
-produces a decision trace a human can audit. A solver would buy a small amount
-of optimality at the cost of the only property that matters here -- being able
-to say exactly why item 447 was chosen and item 448 was not.
+Selection prices the budget itself. Every action competes for the same scarce
+rupees, so the desk finds the budget's shadow price -- lambda, the value of one
+more rupee of it -- and each item takes the action that most beats that price,
+argmax(EV - lambda * cost), or none if even its best action does not clear it.
+lambda is solved by bisection (``_solve_lambda``) to the point where independent
+per-item demand exactly fits the budget, and that clearing price is the
+waterline the trace reports.
 
-The pass structure matters as much as the ranking:
+This is a Lagrangian relaxation, not a naive greedy density fill, and the
+difference is economic rather than cosmetic: ranking by density alone over-buys
+premium actions whose EV barely beats a cheap retry and under-buys dense-but-thin
+nudges that leave the real recovery on the table (see the Pass B budget-price
+note). Each lambda probe is O(n), the outer bisection is a fixed 48 rounds, and
+-- the property that actually matters here -- the reason item 447 was funded and
+item 448 was outbid stays a single comparison against lambda, auditable line by
+line in the decision trace.
+
+The pass structure matters as much as the pricing:
 
     Pass A  price every action for every item, discard anything the gate
             refuses outright, and drop items whose best action loses money
-    Pass B  walk the survivors in EV-per-rupee order, re-pricing against the
-            live ledger, committing until the budget or a cap binds
+    Pass B  solve lambda over the survivors, then re-price each against the live
+            ledger and commit the action that most beats lambda, if any
 
 Pass B re-prices rather than trusting Pass A because contact fatigue and the
 remaining budget both move as the desk commits. Ranking on a stale number is
