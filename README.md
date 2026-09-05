@@ -27,6 +27,10 @@ python run.py demo
 `make demo`, `make eval` and `make test` do the same via the Makefile where
 `make` is available.
 
+`demo` prints the honest baselines and the AI ablation, then walks the strongest
+real moments the scarcity scenario exposes — naming the exact item ids to open —
+and writes the workspace data, so `python run.py ui` opens straight onto them.
+
 ---
 
 ## The result
@@ -42,6 +46,7 @@ Only the allocation policy differs.
 | B1 | Blanket retry ×3 | 224,293 | 221,793 | 28.8% | 2,128 | 58.6% | 2,500 | 0.0111 | 0 |
 | B2 | Rules-only heuristic | 461,983 | 459,970 | 59.2% | 1,238 | 61.5% | 2,013 | 0.0044 | 0 |
 | **B3\*** | **Recovery Desk (no model)** | **560,165** | **557,742** | **71.8%** | **1,397** | **60.9%** | **2,423** | **0.0043** | **0** |
+| B3 | Recovery Desk (model attempted) | 560,165 | 557,742 | 71.8% | 1,397 | 60.9% | 2,423 | 0.0043 | 0 |
 
 `fx-20260905-1000`, `policy-v2`. Reproduce with `python run.py demo`, or replay the
 full evaluation — comparison, exception list and five representative cases drawn
@@ -62,10 +67,14 @@ than B2 until the allocator's ranking was fixed to match (see
 [F7](docs/failures.md)). Both are recorded rather than quietly fixed and
 forgotten.
 
-**B3 (with the model) has not been run.** No `ANTHROPIC_API_KEY` was set during
-this build, so no claim is made about what the model contributes. The arm exists,
-the ablation is wired, and `python run.py demo --model` measures it. Until it
-runs, the ablation line reads *not run* rather than a number.
+**B3 (with the model) is run, and measures to zero here.** No `ANTHROPIC_API_KEY`
+was set during this build, so every item's model call falls back to rules: B3 is
+identical to B3\* by construction, and the ablation reports that as a measured
+result — *0 calls, 100% fallback, +₹0.00* — rather than omitting the arm. That is
+the honest thing to show: the arm genuinely ran 1,000 times and contributed
+nothing *because no key was present*, which is a different statement from "not
+measured". Set a key and `python run.py demo` makes real calls against the same
+ablation.
 
 ### What was deliberately not chased
 
