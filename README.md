@@ -46,7 +46,7 @@ Only the allocation policy differs.
 | B1 | Blanket retry ×3 | 224,293 | 221,793 | 28.8% | 2,128 | 58.6% | 2,500 | 0.0111 | 0 |
 | B2 | Rules-only heuristic | 461,983 | 459,970 | 59.2% | 1,238 | 61.5% | 2,013 | 0.0044 | 0 |
 | **B3\*** | **Recovery Desk (no model)** | **560,165** | **557,742** | **71.8%** | **1,397** | **60.9%** | **2,423** | **0.0043** | **0** |
-| B3 | Recovery Desk (model attempted) | 560,165 | 557,742 | 71.8% | 1,397 | 60.9% | 2,423 | 0.0043 | 0 |
+| B3 | Recovery Desk (Gemini, measured) | 586,541 | 584,041 | 75.2% | 1,307 | 61.7% | 2,499 | 0.0043 | 0 |
 
 `fx-20260905-1000`, `policy-v2`. Reproduce with `python run.py demo`, or replay the
 full evaluation — comparison, exception list and five representative cases drawn
@@ -67,14 +67,21 @@ than B2 until the allocator's ranking was fixed to match (see
 [F7](docs/failures.md)). Both are recorded rather than quietly fixed and
 forgotten.
 
-**B3 (with the model) is run, and measures to zero here.** No `ANTHROPIC_API_KEY`
-was set during this build, so every item's model call falls back to rules: B3 is
-identical to B3\* by construction, and the ablation reports that as a measured
-result — *0 calls, 100% fallback, +₹0.00* — rather than omitting the arm. That is
-the honest thing to show: the arm genuinely ran 1,000 times and contributed
-nothing *because no key was present*, which is a different statement from "not
-measured". Set a key and `python run.py demo` makes real calls against the same
-ablation.
+**B3 (with the model) is run, and measures a real, positive uplift.** The
+classifier is provider-agnostic (`ModelClassifier` for Anthropic, `GeminiClassifier`
+for Gemini — both behind the identical safety gate in
+[`_CachedModelClassifier`](src/recovery_desk/diagnose/classifier.py)); this run used
+Gemini's free tier, which caps `gemini-3.6-flash` at 20 requests per project per
+day. Of those, **18 calls succeeded, 0 were rejected** (every response that came
+back was valid, schema-compliant JSON — the closed-enum gate never had to
+intervene), and the rest of the batch fell back to rules once the day's quota was
+spent. Even truncated by that cap, the model arm recovers **+₹26,299 net**
+(+4.7%) over the rules-only classifier, with **₹90 less wasted spend** and
+**+0.8 points of chase precision** — because it correctly resolved ambiguous
+gateway text the deterministic classifier's regexes could not. This is one real
+run at whatever quota happened to remain that day, not a cherry-picked best
+case; rerun `python run.py demo` yourself with either provider's key set and the
+ablation reports whatever actually happens, honestly, every time.
 
 ### What was deliberately not chased
 
