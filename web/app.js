@@ -32,9 +32,9 @@
   const SUPPRESSION_LABEL = {
     negative_ev: "Negative EV",
     unrecoverable_class: "Unrecoverable class",
-    budget_exhausted: "Budget exhausted",
+    budget_exhausted: "Outbid on budget",
     contact_cap: "Contact cap reached",
-    retry_cap: "Retry cap reached",
+    retry_cap: "Levers spent",
     policy_blocked: "Policy blocked",
     baseline_no_action: "No action taken",
   };
@@ -87,7 +87,12 @@
     ]);
     RUN = run;
     DECISIONS = decisions;
+    HEROES = {};
+    (run.heroes || []).forEach((h) => {
+      HEROES[h.item_id] = h.storyline;
+    });
   }
+  let HEROES = {};
 
   // ---------------------------------------------------------------- header
 
@@ -142,6 +147,43 @@
     );
   }
 
+  // ------------------------------------------------------------- scarcity
+
+  function renderScarcity() {
+    const sc = RUN.overview.scarcity;
+    const wrap = document.getElementById("scarcity");
+    if (!sc) {
+      wrap.hidden = true;
+      return;
+    }
+    const binds = !sc.budget_covers_demand;
+    wrap.className = "scarcity-banner" + (binds ? " binds" : "");
+    wrap.innerHTML = "";
+    const line = el("div", { class: "scarcity-line" });
+    line.appendChild(
+      el("strong", {
+        text: binds ? "It cannot chase everyone." : "The budget covers all demand.",
+      })
+    );
+    const detail = binds
+      ? "Chasing every worthwhile opportunity would cost " +
+        rupees(sc.demanded_spend) +
+        "; the budget is " +
+        rupees(sc.budget) +
+        ". The desk funds " +
+        sc.items_funded +
+        " of " +
+        sc.items_worth_chasing +
+        " worth chasing and leaves " +
+        sc.items_outbid +
+        " positive-value opportunities unfunded — not because they can't be recovered, but because the same rupees recover more elsewhere. The auction clears at " +
+        rupees(sc.waterline_density) +
+        " of expected recovery per rupee spent."
+      : "Every positive-value opportunity is funded; nothing is competing for scarce budget.";
+    line.appendChild(el("span", { class: "scarcity-detail", text: " " + detail }));
+    wrap.appendChild(line);
+  }
+
   // -------------------------------------------------------------- overview
 
   function renderOverview() {
@@ -191,16 +233,18 @@
       const tr = el("tr", { "data-item": row.item_id });
       if (row.item_id === selectedItemId) tr.classList.add("selected");
 
-      tr.appendChild(
-        el("td", {}, [
-          el("div", { text: row.item_id }),
-          el("div", {
-            class: "action-tag",
-            text: row.customer_id,
-            style: "color:var(--ink-faint);font-size:11px;",
-          }),
-        ])
-      );
+      const idCell = el("td", {}, [
+        el("div", { text: row.item_id }),
+        el("div", {
+          class: "action-tag",
+          text: row.customer_id,
+          style: "color:var(--ink-faint);font-size:11px;",
+        }),
+      ]);
+      if (HEROES[row.item_id]) {
+        idCell.querySelector("div").appendChild(el("span", { class: "hero-dot", title: HEROES[row.item_id] }));
+      }
+      tr.appendChild(idCell);
       tr.appendChild(el("td", { text: FAILURE_LABEL[row.failure_class] || row.failure_class }));
       tr.appendChild(el("td", { class: "num amount tabular", text: rupees(row.amount) }));
       tr.appendChild(el("td", { class: "num prob tabular", text: pct(row.recovery_probability) }));
@@ -284,9 +328,15 @@
     selectedItemId = itemId;
     renderQueue();
 
+    const storyline = detail.storyline || HEROES[itemId];
     document.getElementById("detail-id").textContent =
       itemId + "  ·  " + detail.payment.customer_id;
     document.getElementById("detail-amount").textContent = rupees(detail.amount);
+    const storyEl = document.getElementById("detail-storyline");
+    if (storyEl) {
+      storyEl.textContent = storyline || "";
+      storyEl.hidden = !storyline;
+    }
 
     const body = document.getElementById("detail-body");
     body.innerHTML = "";
@@ -373,6 +423,41 @@
     table.appendChild(tbody);
     otherWhy.appendChild(table);
     body.appendChild(otherWhy);
+
+    // -- BUDGET COMPETITION --------------------------------------------
+    // The step the design calls for between expected value and the final
+    // decision: this item's best rupee, judged against the marginal funded one.
+    const bc = detail.budget_competition;
+    if (bc && bc.competitive_density != null) {
+      const compWhy = el("div", { class: "why" });
+      compWhy.appendChild(el("div", { class: "why-label", text: "Budget competition" }));
+      const cleared = bc.cleared;
+      const bar = el("div", { class: "waterline" });
+      const you = el("div", {
+        class: "waterline-row" + (cleared ? " win" : " lose"),
+      });
+      you.appendChild(el("span", { class: "wl-label", text: "This item's best rupee" }));
+      you.appendChild(
+        el("span", { class: "wl-val tabular", text: rupees(bc.competitive_density) + " / ₹1" })
+      );
+      const mark = el("div", { class: "waterline-row mark" });
+      mark.appendChild(el("span", { class: "wl-label", text: "Budget cleared at (waterline)" }));
+      mark.appendChild(
+        el("span", { class: "wl-val tabular", text: rupees(bc.waterline_density) + " / ₹1" })
+      );
+      bar.appendChild(you);
+      bar.appendChild(mark);
+      compWhy.appendChild(bar);
+      compWhy.appendChild(
+        el("div", {
+          class: "evidence-box",
+          text: cleared
+            ? "Funded: its best rupee returns more expected recovery than the marginal rupee the budget could afford elsewhere, so it clears the waterline."
+            : "Outbid: its best rupee returns less than the marginal funded rupee. It is genuinely recoverable — it simply loses the auction for scarce budget, and chasing it would lower total recovery.",
+        })
+      );
+      body.appendChild(compWhy);
+    }
 
     // -- WHY NOT DO NOTHING? ---------------------------------------------
     const nothingWhy = el("div", { class: "why" });
@@ -475,6 +560,7 @@
     }
     renderHeader();
     renderFunnel();
+    renderScarcity();
     renderOverview();
     wireControls();
     renderQueue();

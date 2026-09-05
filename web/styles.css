@@ -552,3 +552,62 @@ footer.foot {
   text-align: center;
   color: var(--ink-faint);
 }
+
+/* -------------------------------------------------------- scarcity banner */
+
+.scarcity-banner {
+  margin-top: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+.scarcity-banner.binds {
+  border-left: 3px solid var(--suppress);
+  background: var(--suppress-bg);
+}
+.scarcity-banner strong { color: var(--ink); }
+.scarcity-detail { color: var(--ink-soft); }
+
+/* hero marker */
+.hero-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink);
+  margin-left: 7px;
+  vertical-align: middle;
+}
+
+.storyline {
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* budget competition / waterline */
+.waterline {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-top: 8px;
+}
+.waterline-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.waterline-row:last-child { border-bottom: none; }
+.waterline-row.mark { background: var(--surface-sunken); color: var(--ink-soft); }
+.waterline-row.win { background: var(--chase-bg); }
+.waterline-row.win .wl-val { color: var(--chase); font-weight: 600; }
+.waterline-row.lose { background: var(--suppress-bg); }
+.waterline-row.lose .wl-val { color: var(--suppress); font-weight: 600; }
+.wl-label { color: var(--ink-soft); }
