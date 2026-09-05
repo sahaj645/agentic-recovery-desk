@@ -3,16 +3,13 @@
    no decoration. The only visual accent is the zero-violations badge and the
    pass/fail colour already established for decision states. */
 
-.nav-link {
-  text-decoration: none;
-  color: var(--ink-soft);
-}
-.nav-link:hover { background: var(--neutral-bg); }
+/* .nav-link lives in styles.css -- it is shared by both surfaces and was
+   duplicated here, which is how the two copies drifted apart. */
 
 table.metrics {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--fs-small);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -20,7 +17,7 @@ table.metrics {
 }
 table.metrics th {
   text-align: left;
-  font-size: 10.5px;
+  font-size: var(--fs-micro);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -49,7 +46,7 @@ table.metrics tr.primary td.label { color: var(--chase); }
   gap: 6px;
   padding: 6px 12px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--fs-small);
   font-weight: 600;
 }
 .violations-badge.zero {
@@ -75,20 +72,20 @@ table.metrics tr.primary td.label { color: var(--chase); }
   padding: 14px 16px;
 }
 .delta-card .vs {
-  font-size: 10.5px;
+  font-size: var(--fs-micro);
   color: var(--ink-faint);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 .delta-card .headline {
   font-family: var(--mono);
-  font-size: 20px;
+  font-size: var(--fs-xl-legacy);
   font-weight: 600;
   color: var(--chase);
   margin-top: 4px;
 }
 .delta-card .sub {
-  font-size: 12px;
+  font-size: var(--fs-small);
   color: var(--ink-soft);
   margin-top: 6px;
   line-height: 1.5;
@@ -114,7 +111,7 @@ table.metrics tr.primary td.label { color: var(--chase); }
   flex-wrap: wrap;
 }
 .case-arm-badge {
-  font-size: 10.5px;
+  font-size: var(--fs-micro);
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 999px;
@@ -126,18 +123,18 @@ table.metrics tr.primary td.label { color: var(--chase); }
 .case-arm-badge.b2 { background: var(--suppress-bg); color: var(--suppress); }
 .case-arm-badge.b3, .case-arm-badge.b3\* { background: var(--chase-bg); color: var(--chase); }
 .case-title {
-  font-size: 13.5px;
+  font-size: var(--fs-body);
   font-weight: 600;
 }
 .case-meta {
-  font-size: 11.5px;
+  font-size: var(--fs-tiny);
   color: var(--ink-faint);
   font-family: var(--mono);
   margin-left: auto;
 }
 .case-narrative {
   margin-top: 8px;
-  font-size: 12.5px;
+  font-size: var(--fs-small);
   color: var(--ink-soft);
   line-height: 1.55;
   max-width: 780px;
@@ -147,7 +144,7 @@ table.metrics tr.primary td.label { color: var(--chase); }
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 6px 18px;
-  font-size: 11.5px;
+  font-size: var(--fs-tiny);
 }
 .case-evidence .ev-key {
   color: var(--ink-faint);
@@ -180,7 +177,7 @@ table.metrics tr.primary td.label { color: var(--chase); }
 .ai-card.ceiling { background: var(--surface-sunken); }
 
 .ai-card-label {
-  font-size: 10.5px;
+  font-size: var(--fs-micro);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -189,7 +186,7 @@ table.metrics tr.primary td.label { color: var(--chase); }
 }
 
 .ai-card-body {
-  font-size: 12px;
+  font-size: var(--fs-small);
   color: var(--ink-soft);
   line-height: 1.5;
 }
@@ -198,7 +195,7 @@ table.metrics tr.primary td.label { color: var(--chase); }
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 12px;
+  font-size: var(--fs-small);
 }
 .ai-stat-label { color: var(--ink-faint); }
 .ai-stat-val { font-family: var(--mono); font-weight: 600; text-align: right; }
@@ -210,7 +207,7 @@ table.metrics tr.primary td.label { color: var(--chase); }
   margin-top: 6px;
   padding: 7px 10px;
   border-radius: var(--radius);
-  font-size: 11.5px;
+  font-size: var(--fs-tiny);
   line-height: 1.45;
 }
 .ai-verdict.neutral { background: var(--neutral-bg); color: var(--ink-soft); }
