@@ -611,3 +611,5 @@ footer.foot {
 .waterline-row.lose { background: var(--suppress-bg); }
 .waterline-row.lose .wl-val { color: var(--suppress); font-weight: 600; }
 .wl-label { color: var(--ink-soft); }
+.nav-link{text-decoration:none;color:var(--ink-soft);}
+.nav-link:hover{background:var(--neutral-bg);}

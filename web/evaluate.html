@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Recovery Desk — Evaluation</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="evaluate.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">RECOVERY DESK</span>
+      <span class="sub" id="brand-sub">loading&hellip;</span>
+    </div>
+    <div class="topbar-meta">
+      <a class="chip nav-link" href="index.html">Allocation workspace</a>
+      <span class="chip" id="chip-policy"></span>
+    </div>
+  </header>
+
+  <main>
+
+    <section aria-label="Arm comparison">
+      <div class="section-label">B0 &middot; B1 &middot; B2 &middot; B3 &mdash; same fixture, same seed, same budget, same policy gate</div>
+      <div class="table-scroll">
+        <table class="metrics" id="arm-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="violations-badge" id="violations-badge"></div>
+    </section>
+
+    <section aria-label="Margin over baselines">
+      <div class="section-label">The desk's margin</div>
+      <div class="deltas" id="deltas"></div>
+    </section>
+
+    <section aria-label="Unresolved exceptions">
+      <div class="section-label">Unresolved exceptions &mdash; recoverable items the desk did not recover</div>
+      <div class="table-scroll">
+        <table class="metrics" id="exceptions-table">
+          <thead>
+            <tr>
+              <th>Failure class</th>
+              <th class="num">Recoverable</th>
+              <th class="num">Chased &amp; missed</th>
+              <th class="num">Miss %</th>
+              <th class="num">Skipped</th>
+              <th class="num">Skip %</th>
+            </tr>
+          </thead>
+          <tbody id="exceptions-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-label="Representative cases">
+      <div class="section-label">Representative cases &mdash; five real items, not staged</div>
+      <div class="cases" id="cases"></div>
+    </section>
+
+    <footer class="foot">
+      Recovery Desk &middot; evaluation replay &middot; every number on this page is read from
+      <code>web/data/evidence.json</code>, written by <code>python run.py ui</code> or
+      <code>python run.py eval</code>. Reproduce with the seed and policy version shown above.
+    </footer>
+
+  </main>
+
+  <script src="evaluate.js"></script>
+</body>
+</html>

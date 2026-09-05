@@ -1,0 +1,159 @@
+/* Evaluation replay -- an evidence report, not a dashboard.
+   Extends styles.css. Kept deliberately plain: tables and prose, no charts,
+   no decoration. The only visual accent is the zero-violations badge and the
+   pass/fail colour already established for decision states. */
+
+.nav-link {
+  text-decoration: none;
+  color: var(--ink-soft);
+}
+.nav-link:hover { background: var(--neutral-bg); }
+
+table.metrics {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+table.metrics th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: var(--surface-sunken);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+table.metrics th.num, table.metrics td.num { text-align: right; }
+table.metrics td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+table.metrics td.label { font-family: var(--sans); font-weight: 600; }
+table.metrics tbody tr:last-child td { border-bottom: none; }
+table.metrics tr.primary td { background: var(--chase-bg); }
+table.metrics tr.primary td.label { color: var(--chase); }
+
+.violations-badge {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.violations-badge.zero {
+  background: var(--chase-bg);
+  color: var(--chase);
+}
+.violations-badge.nonzero {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.deltas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.delta-card {
+  background: var(--surface);
+  padding: 14px 16px;
+}
+.delta-card .vs {
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.delta-card .headline {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--chase);
+  margin-top: 4px;
+}
+.delta-card .sub {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+.cases {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.case-card {
+  background: var(--surface);
+  padding: 16px 18px;
+}
+.case-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.case-arm-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--neutral-bg);
+  color: var(--ink-soft);
+  letter-spacing: 0.02em;
+}
+.case-arm-badge.b1 { background: var(--suppress-bg); color: var(--suppress); }
+.case-arm-badge.b2 { background: var(--suppress-bg); color: var(--suppress); }
+.case-arm-badge.b3, .case-arm-badge.b3\* { background: var(--chase-bg); color: var(--chase); }
+.case-title {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.case-meta {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  margin-left: auto;
+}
+.case-narrative {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  line-height: 1.55;
+  max-width: 780px;
+}
+.case-evidence {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 18px;
+  font-size: 11.5px;
+}
+.case-evidence .ev-key {
+  color: var(--ink-faint);
+  display: block;
+}
+.case-evidence .ev-val {
+  font-family: var(--mono);
+  color: var(--ink);
+}
