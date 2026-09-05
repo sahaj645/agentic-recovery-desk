@@ -80,6 +80,16 @@ def run_arm(
     diagnoses_list = diagnose(items, classifier)
     diagnoses = {d.item_id: d for d in diagnoses_list}
 
+    # Persist whatever the classifier just learned. Without this, a model-backed
+    # classifier's cache lives only in this process's memory: the next `demo`,
+    # `ui` or `eval` invocation starts empty and re-attempts the same handful of
+    # real calls from scratch, burning a free-tier rate limit for no reason and
+    # quietly breaking the "a batch costs a few dozen calls" claim the moment two
+    # commands run back to back. `hasattr` because the deterministic classifier
+    # has no cache to flush.
+    if hasattr(classifier, "flush"):
+        classifier.flush()
+
     ledger = Ledger(policy=policy)
     all_decisions: list[Decision] = []
     all_attempts: list[ActionAttempt] = []
