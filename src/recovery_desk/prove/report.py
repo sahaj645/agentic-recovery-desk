@@ -164,6 +164,13 @@ def decision_trace(result: ArmResult, item_id: str) -> str:
     rows = []
     for evaluation in decision.ev_table:
         b = evaluation.breakdown
+        # EV per rupee of budget: the column the desk actually ranks on once the
+        # budget binds. Without it, a chosen action that scores a lower raw EV
+        # than an unchosen one -- the reroute that loses to a cheap retry -- reads
+        # as arbitrary. With it, the reason is on the same line as the choice.
+        density = (
+            ("%.1f" % b.ev_per_rupee) if b.ev_per_rupee < 100 else "{:,.0f}".format(b.ev_per_rupee)
+        ) if (evaluation.eligible and b.cost > 0) else "-"
         rows.append(
             [
                 evaluation.candidate.action_type.value,
@@ -172,6 +179,7 @@ def decision_trace(result: ArmResult, item_id: str) -> str:
                 "%.2f" % b.cost,
                 "%.2f" % b.fatigue_penalty,
                 "%.2f" % b.ev,
+                density,
                 "yes" if evaluation.eligible else (evaluation.block_reason or "no"),
                 "<- chosen" if evaluation.candidate.action_type is decision.chosen_action
                 and decision.status is DecisionStatus.CHASE
@@ -199,9 +207,9 @@ def decision_trace(result: ArmResult, item_id: str) -> str:
             decision.rationale,
         )
         + render_table(
-            ["action", "p", "gross", "cost", "fatigue", "EV", "eligible", ""],
+            ["action", "p", "gross", "cost", "fatigue", "EV", "EV/Re", "eligible", ""],
             rows,
-            (1, 2, 3, 4, 5),
+            (1, 2, 3, 4, 5, 6),
         )
         + ("\n  policy checks\n" + checks if checks else "")
     )

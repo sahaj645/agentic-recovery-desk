@@ -665,6 +665,12 @@ table.candidates tr.selected td:first-child {
   box-shadow: inset 2px 0 0 var(--chase);
 }
 
+/* EV per rupee is the column the allocation actually turns on, so it is set in
+   ink rather than the muted weight of the arithmetic columns beside it. */
+table.candidates td.density { color: var(--ink); font-variant-numeric: tabular-nums; }
+table.candidates td.density.muted { color: var(--ink-faint); }
+table.candidates tr.selected td.density { color: var(--chase); font-weight: 600; }
+
 /* Blocked candidates stay visible -- the point of the table is that the desk
    priced them and refused -- but they sit clearly behind the eligible ones. */
 table.candidates tr.ineligible td { color: var(--ink-faint); }

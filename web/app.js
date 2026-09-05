@@ -60,6 +60,16 @@
 
   const pct = (value, digits) => (Number(value) * 100).toFixed(digits != null ? digits : 1) + "%";
 
+  // Density spans four orders of magnitude across actions -- a ₹2.50 retry on a
+  // large ticket dwarfs a premium reroute -- so it reads better with a thousands
+  // separator and no decimals once it clears single digits.
+  const fmtDensity = (value) => {
+    const n = Number(value) || 0;
+    return n >= 100
+      ? "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 0 })
+      : "₹" + n.toFixed(1);
+  };
+
   const el = (tag, attrs, children) => {
     const node = document.createElement(tag);
     if (attrs) {
@@ -430,6 +440,16 @@
     tr.appendChild(el("td", { text: rupees(candidate.cost, { decimals: 2 }) }));
     tr.appendChild(el("td", { text: rupees(candidate.fatigue_penalty, { decimals: 2 }) }));
     tr.appendChild(el("td", { text: rupees(candidate.expected_value) }));
+    // Expected value per rupee of budget: the metric the desk actually ranks
+    // on once the budget binds. It is what makes a lower-EV action win -- the
+    // reroute can have the higher EV and still lose here -- so it carries its
+    // own emphasis rather than hiding among the other columns.
+    tr.appendChild(
+      el("td", {
+        class: "density" + (candidate.eligible && candidate.cost > 0 ? "" : " muted"),
+        text: candidate.eligible && candidate.cost > 0 ? fmtDensity(candidate.ev_per_rupee) : "—",
+      })
+    );
 
     const why = el("td", { class: "why-not" });
     if (!candidate.eligible) {
@@ -534,6 +554,7 @@
       el("th", { text: "cost" }),
       el("th", { text: "fatigue" }),
       el("th", { text: "EV" }),
+      el("th", { text: "EV / ₹", title: "Expected value per rupee of budget — what the desk ranks on when the budget binds" }),
       el("th", { text: "" }),
     ]);
     table.appendChild(el("thead", {}, [thead]));
