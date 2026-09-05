@@ -550,3 +550,46 @@ def build_run(
         "allocation": build_allocation(fixture, arm, policy),
         "proof": build_proof(results),
     }
+
+
+# --------------------------------------------------------------------------
+# Workspace (single-arm view, for the allocation-workspace UI)
+# --------------------------------------------------------------------------
+
+
+def build_workspace(fixture: Fixture, arm: ArmResult, policy: Policy) -> dict[str, Any]:
+    """The document the allocation-workspace frontend reads.
+
+    Narrower than ``build_run``: one arm, no baseline comparison. It exists
+    because the workspace UI shows the funnel, the queue and the decision
+    detail for the desk itself, not the B0-B3 arm comparison -- that is the
+    Proof surface's job, and it reads ``build_run`` instead.
+    """
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": arm.run.id,
+        "generated_at": _iso(arm.run.finished_at),
+        "fixture": {
+            "id": fixture.id,
+            "seed": fixture.seed,
+            "size": fixture.size,
+            "total_at_risk": _money(fixture.total_at_risk),
+        },
+        "policy": {
+            "version": policy.version,
+            "budget": _money(policy.budget),
+            "margin": policy.margin,
+            "lambda_fatigue": policy.lambda_fatigue,
+            "max_retries_per_item": policy.max_retries_per_item,
+            "max_contacts_per_customer": policy.max_contacts_per_customer,
+            "contact_window_hours": policy.contact_window_hours,
+            "dry_run": policy.dry_run,
+        },
+        "arm": {
+            "arm_id": arm.arm_id,
+            "name": arm.name,
+            "classifier": arm.classifier_provenance,
+        },
+        "overview": build_overview(fixture, arm, policy),
+        "queue": build_queue(fixture, arm),
+    }

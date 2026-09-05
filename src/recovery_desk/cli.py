@@ -9,15 +9,26 @@ exits cleanly, with no install step and no configuration.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from .config import DEFAULT_BATCH_SIZE, DEFAULT_SEED, Policy
-from .diagnose.classifier import ModelClassifier
+from .contract import build_decisions, build_workspace
+from .diagnose.classifier import DeterministicClassifier, ModelClassifier
 from .fixtures.generator import generate
 from .models import DecisionStatus
 from .prove import report as report_module
-from .prove.harness import ArmResult, run_all
+from .prove.harness import ArmResult, run_arm, run_all
+from .decide.strategies import RecoveryDesk
+
+#: Defaults tuned so the demo shows every decision state at once: chased items
+#: spanning high and low EV, negative-EV suppression, unrecoverable-class
+#: suppression, and a budget tight enough that budget-exhausted suppression
+#: actually binds. The default policy's Rs2,500 budget does not bind until the
+#: pool is much larger, so the UI demo uses its own smaller, tighter pair.
+UI_DEFAULT_SIZE = 350
+UI_DEFAULT_BUDGET = 900.0
 
 
 def _policy(args: argparse.Namespace) -> Policy:
@@ -169,6 +180,68 @@ def command_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+WEB_DATA_DIR = WEB_DIR / "data"
+
+
+def command_ui(args: argparse.Namespace) -> int:
+    """Generate the allocation-workspace data and, unless told not to, serve it.
+
+    Runs the desk on its own deterministic classifier -- no API key is needed to
+    see the workspace -- and writes exactly two files the page fetches:
+    ``web/data/run.json`` (overview + queue) and ``web/data/decisions.json``
+    (the full priced table per item, for the detail panel). Both come straight
+    out of ``contract.py``; nothing here computes a decision.
+    """
+    policy = Policy(budget=args.budget, version="policy-v1")
+    fixture = generate(seed=args.seed, size=args.size)
+    arm = run_arm(fixture, RecoveryDesk(), policy, DeterministicClassifier(),
+                   arm_id="B3*", name="Recovery Desk")
+
+    workspace = build_workspace(fixture, arm, policy)
+    decisions = build_decisions(fixture, arm)
+
+    WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    (WEB_DATA_DIR / "run.json").write_text(
+        json.dumps(workspace, indent=1), encoding="utf-8"
+    )
+    (WEB_DATA_DIR / "decisions.json").write_text(
+        json.dumps(decisions, indent=1), encoding="utf-8"
+    )
+
+    m = arm.metrics
+    print(
+        "workspace data written  %s\n"
+        "  %d items, Rs%.0f at risk, budget Rs%.0f\n"
+        "  chased %d  suppressed %d  recovered %d (%.1f%% of recoverable)\n"
+        "  wrote %s\n"
+        "  wrote %s"
+        % (
+            fixture.id, fixture.size, fixture.total_at_risk, policy.budget,
+            m.items_chased, m.items_suppressed, m.items_recovered,
+            m.recovery_rate * 100,
+            WEB_DATA_DIR / "run.json", WEB_DATA_DIR / "decisions.json",
+        )
+    )
+
+    if args.no_serve:
+        return 0
+
+    import functools
+    import http.server
+
+    handler = functools.partial(
+        http.server.SimpleHTTPRequestHandler, directory=str(WEB_DIR)
+    )
+    with http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler) as httpd:
+        print("\nserving  http://127.0.0.1:%d/  (Ctrl+C to stop)" % args.port)
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            pass
+    return 0
+
+
 def _pick_trace_item(arm: ArmResult) -> str | None:
     """A chased item with a full table beats a suppressed one for a first look."""
     chased = [
@@ -207,6 +280,17 @@ def build_parser() -> argparse.ArgumentParser:
     common(evaluate)
     evaluate.add_argument("--seeds", type=int, nargs="*", default=None)
     evaluate.set_defaults(func=command_eval)
+
+    ui = sub.add_parser(
+        "ui", help="generate the allocation-workspace data and serve it"
+    )
+    ui.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    ui.add_argument("--size", type=int, default=UI_DEFAULT_SIZE)
+    ui.add_argument("--budget", type=float, default=UI_DEFAULT_BUDGET)
+    ui.add_argument("--port", type=int, default=8756)
+    ui.add_argument("--no-serve", action="store_true",
+                     help="write web/data/*.json and exit without starting a server")
+    ui.set_defaults(func=command_ui)
 
     return parser
 

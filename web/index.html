@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Recovery Desk</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">RECOVERY DESK</span>
+      <span class="sub" id="brand-sub">loading&hellip;</span>
+    </div>
+    <div class="topbar-meta">
+      <span class="chip" id="chip-policy"></span>
+      <span class="chip dry-run"><span class="dot"></span>dry-run</span>
+    </div>
+  </header>
+
+  <main>
+
+    <section aria-label="Recovery funnel">
+      <div class="section-label">Money at risk &rarr; worth chasing &rarr; not worth chasing &rarr; recovered</div>
+      <div class="funnel" id="funnel"></div>
+    </section>
+
+    <section aria-label="Overview">
+      <div class="section-label">Overview</div>
+      <div class="overview-grid" id="overview"></div>
+    </section>
+
+    <section aria-label="Opportunity queue">
+      <div class="section-label">Opportunities</div>
+      <div class="workspace">
+        <div class="toolbar">
+          <div class="seg" id="status-filter">
+            <button data-filter="all" class="active">All</button>
+            <button data-filter="chase">Chasing</button>
+            <button data-filter="suppressed">Not worth chasing</button>
+          </div>
+          <input class="search" id="search" type="text" placeholder="Search item or customer id&hellip;" />
+          <span class="count" id="row-count"></span>
+        </div>
+        <div class="table-scroll">
+          <table class="queue">
+            <thead>
+              <tr>
+                <th>Payment</th>
+                <th>Failure reason</th>
+                <th class="num">Amount</th>
+                <th class="num">Recovery prob.</th>
+                <th>Recommended action</th>
+                <th class="num">Action cost</th>
+                <th class="num">Expected value</th>
+                <th>Decision</th>
+              </tr>
+            </thead>
+            <tbody id="queue-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <footer class="foot">
+      Recovery Desk &middot; dry-run &middot; every figure on this page comes from a real seeded run,
+      read from <code>web/data/run.json</code> and <code>web/data/decisions.json</code>.
+    </footer>
+
+  </main>
+
+  <div class="overlay" id="overlay"></div>
+  <aside class="detail-panel" id="detail-panel">
+    <div class="detail-header">
+      <div>
+        <div class="id" id="detail-id"></div>
+        <div class="amount tabular" id="detail-amount"></div>
+      </div>
+      <button class="detail-close" id="detail-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="detail-body" id="detail-body"></div>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>
