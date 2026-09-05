@@ -630,6 +630,12 @@ td.amount { font-weight: 600; }
   background: var(--suppress-bg);
 }
 
+/* Eight priced columns do not fit a panel that has shrunk with the viewport.
+   The table scrolls inside its own section rather than clipping its figures or
+   pushing the surrounding prose sideways; at the panel's full width it fits and
+   no scrollbar appears at all. */
+.candidates-scroll { overflow-x: auto; }
+
 table.candidates {
   width: 100%;
   border-collapse: collapse;
@@ -648,12 +654,20 @@ table.candidates th {
 }
 table.candidates th:first-child, table.candidates td:first-child { text-align: left; }
 table.candidates td {
-  padding: 5px 7px;
+  padding: 5px 6px;
   text-align: right;
   font-family: var(--mono);
   border-bottom: 1px solid var(--line-soft);
 }
 table.candidates td:first-child { font-family: var(--sans); }
+
+/* The detail panel is a fixed 560px column at every viewport, so the responsive
+   breakpoints below never reach this table -- it has to fit eight columns in
+   ~500px on its own. Headers and action names therefore hold one line each, and
+   the "why not" note is the single column allowed to wrap: it is prose, the
+   rest are figures, and a figure that wraps is a figure you cannot scan. */
+table.candidates th,
+table.candidates td:first-child { white-space: nowrap; }
 table.candidates tbody tr:last-child td { border-bottom: none; }
 
 /* The chosen action is the answer to "why this action?" -- it carries an
@@ -677,7 +691,9 @@ table.candidates tr.ineligible td { color: var(--ink-faint); }
 table.candidates .why-not {
   font-size: var(--fs-micro);
   color: var(--suppress);
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.3;
+  min-width: 56px;
 }
 
 .policy-checks {
@@ -868,12 +884,15 @@ footer.foot {
 .stepper-value.chase { color: var(--chase); }
 .stepper-value.suppress { color: var(--suppress); }
 
+/* The stage's caption carries the actual diagnosis ("Account blocked or
+   frozen"), which is the substance of the stage rather than a label for it.
+   Inside a fixed 560px panel that does not fit on one line, and truncating it
+   hides the one thing the stage exists to say -- so it wraps instead. */
 .stepper-sub {
   font-size: var(--fs-micro);
   color: var(--ink-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 /* ----------------------------------------------------------- product states */
@@ -981,6 +1000,16 @@ footer.foot {
   .stepper-arrow { display: none; }
   .kv { grid-template-columns: 1fr; gap: 2px var(--s2); }
   .kv dt { margin-top: var(--s1); }
+}
+
+/* The detail panel is min(560px, 92vw), so below roughly this width it stops
+   being 560px and starts tracking the viewport. Past that point the priced
+   action table no longer fits on single lines, so the nowrap above is released
+   and the figures wrap again rather than shoving the panel sideways. */
+@media (max-width: 608px) {
+  table.candidates th,
+  table.candidates td:first-child { white-space: normal; }
+  table.candidates td { padding: 5px 4px; }
 }
 
 @media (max-width: 480px) {

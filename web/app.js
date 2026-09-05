@@ -380,7 +380,17 @@
     // item's actual data, not as decoration.
     const isAiClassifier = detail.failure.provenance.startsWith(AI_PROVENANCE_PREFIX);
     const policyChecks = detail.policy_checks || [];
-    const allPassed = policyChecks.every((c) => c.passed);
+    const allPassed = policyChecks.length > 0 && policyChecks.every((c) => c.passed);
+
+    // An item refused on the first pass -- a frozen account, a spent retry or
+    // contact cap -- carries no recorded gate checks, because the gate stopped
+    // it before any action was costed. The refusal is still the gate's: every
+    // candidate row on such an item shows the same block reason. Reporting an
+    // empty "—" here would hand the economics stage credit for a decision that
+    // policy actually made, on exactly the items where policy is the whole
+    // story.
+    const POLICY_REFUSALS = ["unrecoverable_class", "contact_cap", "retry_cap", "policy_blocked"];
+    const refusedByPolicy = !isChase && POLICY_REFUSALS.indexOf(detail.suppression_reason) !== -1;
 
     const stage = (label, value, sub, cls) =>
       el("div", { class: "stepper-stage" }, [
@@ -412,9 +422,13 @@
     wrap.appendChild(
       stage(
         "Policy controls",
-        policyChecks.length ? (allPassed ? "Cleared" : "Blocked") : "—",
-        policyChecks.length + " check" + (policyChecks.length === 1 ? "" : "s"),
-        allPassed ? "chase" : "suppress"
+        allPassed ? "Cleared" : (policyChecks.length || refusedByPolicy ? "Blocked" : "—"),
+        policyChecks.length
+          ? policyChecks.length + " check" + (policyChecks.length === 1 ? "" : "s")
+          : (refusedByPolicy
+              ? SUPPRESSION_LABEL[detail.suppression_reason] || detail.suppression_reason
+              : "no gate checks"),
+        allPassed ? "chase" : (policyChecks.length || refusedByPolicy ? "suppress" : "")
       )
     );
     wrap.appendChild(arrow());
@@ -554,7 +568,7 @@
       el("th", { text: "cost" }),
       el("th", { text: "fatigue" }),
       el("th", { text: "EV" }),
-      el("th", { text: "EV / ₹", title: "Expected value per rupee of budget — what the desk ranks on when the budget binds" }),
+      el("th", { text: "EV/₹", title: "Expected value per rupee of budget — what the desk ranks on when the budget binds" }),
       el("th", { text: "" }),
     ]);
     table.appendChild(el("thead", {}, [thead]));
@@ -564,7 +578,7 @@
       .sort((a, b) => b.expected_value - a.expected_value)
       .forEach((c) => tbody.appendChild(candidateRow(c, c.selected)));
     table.appendChild(tbody);
-    otherWhy.appendChild(table);
+    otherWhy.appendChild(el("div", { class: "candidates-scroll" }, [table]));
     body.appendChild(otherWhy);
 
     // -- BUDGET COMPETITION --------------------------------------------
