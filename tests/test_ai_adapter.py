@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from recovery_desk.diagnose.classifier import (
     DeterministicClassifier,
+    GeminiClassifier,
     ModelClassifier,
     validate_payload,
 )
@@ -105,6 +106,27 @@ def test_fallback_works_when_no_api_key_present():
     assert stats["calls_made"] == 0
     assert stats["fallbacks_used"] == 1
     assert stats["had_api_key"] is False
+
+
+def test_gemini_adapter_shares_the_same_safety_gate():
+    """The second provider goes through the identical gate, not a parallel one.
+
+    Without a Gemini key this only proves the fallback path -- the point is
+    that GeminiClassifier is a real subclass of the same base as ModelClassifier
+    and cannot skip validate_payload, not that a live call succeeded.
+    """
+    classifier = GeminiClassifier(cache_path=Path("/nonexistent/does-not-matter3.json"))
+    assert classifier.available is False
+    diagnosis = classifier.classify(_item())
+    assert diagnosis.failure_class in FailureClass
+    assert diagnosis.classifier_provenance == "rules:fallback-v1"
+    stats = classifier.stats()
+    assert stats["calls_made"] == 0
+    assert stats["fallbacks_used"] == 1
+    assert stats["had_api_key"] is False
+    # Both provider adapters use the "model:" prefix the UI reads to draw the
+    # AI boundary -- provenance differs only in which model name follows it.
+    assert classifier.provenance.startswith("model:")
 
 
 def test_classifier_never_produces_a_class_outside_the_closed_enum():

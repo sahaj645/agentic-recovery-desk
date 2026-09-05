@@ -7,8 +7,11 @@ dependencies = []
 
 [project.optional-dependencies]
 # The core engine is stdlib-only so a judge can clone and run it with no install step.
-# These are for the model arm and the read-only API that feeds the UI.
+# These are for the model arm and the read-only API that feeds the UI. Gemini is
+# a separate extra, not a dependency of `model`, so the zero-install default path
+# never pulls in a package nobody asked for.
 model = ["anthropic>=0.40"]
+gemini = ["google-generativeai>=0.8"]
 api = ["fastapi>=0.110", "uvicorn>=0.29"]
 dev = ["pytest>=8"]
 

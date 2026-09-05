@@ -108,28 +108,32 @@ def signature(raw: str) -> str:
     return hashlib.sha256(shape.encode()).hexdigest()[:16]
 
 
-class ModelClassifier:
-    """Claude reads the unbounded text; the enum bounds what it can say.
+class _CachedModelClassifier:
+    """Shared safety gate for every model-backed classifier.
 
-    Three properties make this safe to put in a money pipeline: output is
-    coerced into ``FailureClass`` or rejected, calls are cached by failure
-    signature so a 1,000-item batch costs a few dozen calls, and any error at
-    all falls through to the deterministic classifier rather than failing the
-    batch.
+    Provider adapters (Anthropic, Gemini, ...) differ only in how they make one
+    network call and unwrap its response; everything that makes a model safe to
+    put in a money pipeline lives here exactly once, so a second provider cannot
+    quietly bypass it. Every payload -- fresh or cached -- passes through
+    ``validate_payload`` before it can become a ``Diagnosis``: output is coerced
+    into the closed ``FailureClass`` enum or rejected, and any error at all
+    (network, auth, malformed output) falls through to the deterministic
+    classifier rather than failing the batch. Subclasses implement only
+    ``available`` and ``_call_model``.
     """
+
+    #: Set by each subclass; kept here only so callers can annotate on the base.
+    model: str
+    provenance: str
 
     def __init__(
         self,
-        model: str = "claude-haiku-4-5-20251001",
-        cache_path: Path | None = None,
+        cache_path: Path,
         fallback: Classifier | None = None,
     ) -> None:
-        self.model = model
-        self.provenance = "model:" + model
-        self.cache_path = cache_path or Path(".cache/diagnosis.json")
+        self.cache_path = cache_path
         self.fallback = fallback or DeterministicClassifier()
         self._cache: dict[str, dict] = self._load_cache()
-        self._client = None
         self.calls_made = 0
         self.cache_hits = 0
         self.rejected_outputs = 0
@@ -149,8 +153,11 @@ class ModelClassifier:
     # -- classification ---------------------------------------------------
 
     @property
-    def available(self) -> bool:
-        return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    def available(self) -> bool:  # pragma: no cover - overridden by subclasses
+        raise NotImplementedError
+
+    def _call_model(self, raw: str) -> dict | None:  # pragma: no cover
+        raise NotImplementedError
 
     def classify(self, item: AtRiskItem) -> Diagnosis:
         key = signature(item.raw_gateway_context)
@@ -184,6 +191,39 @@ class ModelClassifier:
             recovery_prior=priors.headline_prior(failure_class),
             classifier_provenance=self.provenance,
         )
+
+    def stats(self) -> dict[str, int | bool | str]:
+        return {
+            "model": self.model,
+            "had_api_key": self.available,
+            "calls_made": self.calls_made,
+            "cache_hits": self.cache_hits,
+            "rejected_outputs": self.rejected_outputs,
+            "fallbacks_used": self.fallbacks_used,
+        }
+
+
+class ModelClassifier(_CachedModelClassifier):
+    """Claude reads the unbounded text; the enum bounds what it can say.
+
+    See ``_CachedModelClassifier`` for the three safety properties this and
+    every other provider adapter share.
+    """
+
+    def __init__(
+        self,
+        model: str = "claude-haiku-4-5-20251001",
+        cache_path: Path | None = None,
+        fallback: Classifier | None = None,
+    ) -> None:
+        self.model = model
+        self.provenance = "model:" + model
+        self._client = None
+        super().__init__(cache_path or Path(".cache/diagnosis.json"), fallback)
+
+    @property
+    def available(self) -> bool:
+        return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
     def _call_model(self, raw: str) -> dict | None:
         if not self.available:
@@ -225,15 +265,74 @@ class ModelClassifier:
             return None
         return validated
 
-    def stats(self) -> dict[str, int | bool | str]:
-        return {
-            "model": self.model,
-            "had_api_key": self.available,
-            "calls_made": self.calls_made,
-            "cache_hits": self.cache_hits,
-            "rejected_outputs": self.rejected_outputs,
-            "fallbacks_used": self.fallbacks_used,
-        }
+
+class GeminiClassifier(_CachedModelClassifier):
+    """The same seam, on Gemini instead of Claude.
+
+    Exists for one reason: a contributor without Anthropic billing set up can
+    still measure a real model arm, on Google AI Studio's free tier, through
+    the identical safety gate in ``_CachedModelClassifier``. Nothing downstream
+    -- the EV math, the allocator, the policy gate -- can tell which provider
+    produced a ``Diagnosis``; both share the ``model:`` provenance prefix the
+    UI uses to draw the AI boundary.
+    """
+
+    def __init__(
+        self,
+        model: str = "gemini-3.6-flash",
+        cache_path: Path | None = None,
+        fallback: Classifier | None = None,
+    ) -> None:
+        self.model = model
+        self.provenance = "model:" + model
+        self._client = None
+        super().__init__(cache_path or Path(".cache/diagnosis_gemini.json"), fallback)
+
+    @property
+    def available(self) -> bool:
+        return bool(
+            os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        )
+
+    def _call_model(self, raw: str) -> dict | None:
+        if not self.available:
+            return None
+        try:
+            if self._client is None:
+                import google.generativeai as genai
+
+                genai.configure(
+                    api_key=os.environ.get("GEMINI_API_KEY")
+                    or os.environ.get("GOOGLE_API_KEY")
+                )
+                allowed = ", ".join(c.value for c in FailureClass)
+                self._client = genai.GenerativeModel(
+                    self.model, system_instruction=SYSTEM_PROMPT % allowed
+                )
+            response = self._client.generate_content(raw)
+        except Exception:
+            # Same contract as the Anthropic adapter: transport, auth, quota,
+            # a blocked-content response with no text -- any of it is simply
+            # not a call, and the batch falls back to rules.
+            return None
+
+        self.calls_made += 1
+        try:
+            text = response.text.strip()
+            text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
+            raw_payload = json.loads(text)
+        except Exception:
+            # Broad on purpose: response.text itself raises for a response with
+            # no text part (e.g. safety-filtered), which is a rejection here,
+            # not a crash.
+            self.rejected_outputs += 1
+            return None
+
+        validated = validate_payload(raw_payload)
+        if validated is None:
+            self.rejected_outputs += 1
+            return None
+        return validated
 
 
 def diagnose(items: Sequence[AtRiskItem], classifier: Classifier) -> list[Diagnosis]:

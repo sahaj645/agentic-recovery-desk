@@ -16,7 +16,9 @@ from types import SimpleNamespace
 
 from .config import DEFAULT_BATCH_SIZE, DEFAULT_POLICY, DEFAULT_SEED, Policy
 from .contract import build_decisions, build_evidence, build_exceptions, build_workspace, waterline_density
-from .diagnose.classifier import DeterministicClassifier, ModelClassifier
+import os
+
+from .diagnose.classifier import DeterministicClassifier, GeminiClassifier, ModelClassifier
 from .fixtures.generator import generate
 from .fixtures.scenario import HERO_LABELS, generate_scenario
 from .models import DecisionStatus
@@ -39,7 +41,29 @@ def _policy(args: argparse.Namespace) -> Policy:
     return Policy(budget=args.budget) if args.budget else Policy()
 
 
-def _classifier(args: argparse.Namespace) -> ModelClassifier | None:
+def _build_classifier() -> ModelClassifier | GeminiClassifier:
+    """Pick a provider from whichever key is actually set.
+
+    Anthropic first, if present, to keep the desk's default identity stable for
+    anyone who has always run it that way. Gemini as the free-tier fallback --
+    Google AI Studio issues keys with no billing required -- for anyone without
+    Anthropic credit. With neither key present this still returns the Anthropic
+    adapter, which reports its own honest "no key, all fallback" result exactly
+    as before; nothing about the no-key path changes.
+
+    Both adapters share one safety gate (``_CachedModelClassifier``) and the
+    same ``model:`` provenance prefix the UI reads to draw the AI boundary, so
+    which one ran is a detail, never a different code path through EV, the
+    allocator or the policy gate.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return ModelClassifier()
+    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+        return GeminiClassifier()
+    return ModelClassifier()
+
+
+def _classifier(args: argparse.Namespace) -> ModelClassifier | GeminiClassifier | None:
     """Build the B3 classifier if --model was asked for, and let it actually run.
 
     Previously this returned None outright when no API key was present, which
@@ -52,13 +76,14 @@ def _classifier(args: argparse.Namespace) -> ModelClassifier | None:
     """
     if not args.model:
         return None
-    classifier = ModelClassifier()
+    classifier = _build_classifier()
     if not classifier.available:
         print(
-            "  note: --model was requested but ANTHROPIC_API_KEY is not set.\n"
-            "        The B3 arm will still run -- every item attempts the model\n"
-            "        and falls back to rules, and that is reported as a measured\n"
-            "        result (0 calls, 100% fallback), not skipped.\n",
+            "  note: --model was requested but no ANTHROPIC_API_KEY or\n"
+            "        GEMINI_API_KEY/GOOGLE_API_KEY is set. The B3 arm will still\n"
+            "        run -- every item attempts the model and falls back to\n"
+            "        rules, and that is reported as a measured result (0 calls,\n"
+            "        100% fallback), not skipped.\n",
             file=sys.stderr,
         )
     return classifier
@@ -399,7 +424,7 @@ def generate_web_data(
         eval_fixture = generate(seed=DEFAULT_SEED, size=DEFAULT_BATCH_SIZE)
         # Always attempt the model arm -- same reasoning as command_eval: a real,
         # measured "0 calls" is honest; silently omitting the arm is not.
-        eval_results = run_all(eval_fixture, eval_policy, ModelClassifier())
+        eval_results = run_all(eval_fixture, eval_policy, _build_classifier())
     else:
         eval_policy = eval_policy or DEFAULT_POLICY
 
@@ -509,7 +534,8 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--size", type=int, default=DEFAULT_BATCH_SIZE)
         p.add_argument("--budget", type=float, default=None)
         p.add_argument("--model", action="store_true",
-                       help="add the B3 model arm (needs ANTHROPIC_API_KEY)")
+                       help="add the B3 model arm (needs ANTHROPIC_API_KEY, or "
+                            "GEMINI_API_KEY/GOOGLE_API_KEY as a free-tier fallback)")
         p.add_argument("--note", default="", help="note recorded in results/runs.csv")
         p.add_argument("--no-write", action="store_true")
 
