@@ -46,7 +46,7 @@ Only the allocation policy differs.
 | B1 | Blanket retry ×3 | 224,293 | 221,793 | 28.8% | 2,128 | 58.6% | 2,500 | 0.0111 | 0 |
 | B2 | Rules-only heuristic | 461,983 | 459,970 | 59.2% | 1,238 | 61.5% | 2,013 | 0.0044 | 0 |
 | **B3\*** | **Recovery Desk (no model)** | **560,165** | **557,742** | **71.8%** | **1,397** | **60.9%** | **2,423** | **0.0043** | **0** |
-| B3 | Recovery Desk (Gemini, measured) | 586,541 | 584,041 | 75.2% | 1,307 | 61.7% | 2,499 | 0.0043 | 0 |
+| B3 | Recovery Desk (Gemini, measured) | 606,025 | 603,525 | 77.7% | 1,283 | 61.4% | 2,500 | 0.0041 | 0 |
 
 `fx-20260905-1000`, `policy-v2`. Reproduce with `python run.py demo`, or replay the
 full evaluation — comparison, exception list and five representative cases drawn
@@ -72,16 +72,23 @@ classifier is provider-agnostic (`ModelClassifier` for Anthropic, `GeminiClassif
 for Gemini — both behind the identical safety gate in
 [`_CachedModelClassifier`](src/recovery_desk/diagnose/classifier.py)); this run used
 Gemini's free tier, which caps `gemini-3.6-flash` at 20 requests per project per
-day. Of those, **18 calls succeeded, 0 were rejected** (every response that came
-back was valid, schema-compliant JSON — the closed-enum gate never had to
-intervene), and the rest of the batch fell back to rules once the day's quota was
-spent. Even truncated by that cap, the model arm recovers **+₹26,299 net**
-(+4.7%) over the rules-only classifier, with **₹90 less wasted spend** and
-**+0.8 points of chase precision** — because it correctly resolved ambiguous
-gateway text the deterministic classifier's regexes could not. This is one real
-run at whatever quota happened to remain that day, not a cherry-picked best
-case; rerun `python run.py demo` yourself with either provider's key set and the
-ablation reports whatever actually happens, honestly, every time.
+day. In the run above the classifier made **21 calls, served 729 from its own
+signature cache, and had 0 rejected outputs** — every response that came back was
+valid, schema-compliant JSON, so the closed-enum gate never had to intervene. The
+remaining 250 items fell back to rules once the day's quota was spent.
+
+Even truncated by that cap, the model arm recovers **+₹45,783 net (+8.2%)** over
+the rules-only classifier, with **₹115 less wasted spend** and **+0.5 points of
+chase precision**. On the ambiguous zone specifically — the items rules alone
+class as UNKNOWN or low-confidence — it **resolved 184 items and got 184 of them
+right**, which is precisely the gap the deterministic regexes cannot close.
+
+Two honest caveats. The size of this uplift depends on how much of the batch the
+free tier lets the model classify before the daily cap: an earlier run that got
+only 18 calls through measured +₹26,299, and both numbers are real. And the
+per-call cache means a second run costs almost nothing, which is why the figures
+above are cheap to reproduce. Run `python run.py demo` with either provider's key
+set and the ablation reports whatever actually happened, every time.
 
 ### What was deliberately not chased
 
